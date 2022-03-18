@@ -17,6 +17,19 @@ local function dump_table(table, prefix)
 	end
 end
 
+local function copy_table(src, recursive)
+	local res = {}
+	for k, v in pairs(src) do
+		if recursive and type(v) == "table" then
+			res[k] = copy_table(v, recursive)
+		else
+			res[k] = v
+		end
+	end
+
+	return res
+end
+
 local function merge_table(tar, src)
 	for k,v in pairs(src) do
 		if type(v) == "table" and type(tar[k]) == "table" then
@@ -32,5 +45,6 @@ end
 return {
 	find = find,
 	dump_table = dump_table,
+	copy_table = copy_table,
 	merge_table = merge_table,
 }

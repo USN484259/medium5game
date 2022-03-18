@@ -1,3 +1,5 @@
+local util = require("util")
+
 local function cmp(a, b)
 	return a[1] == b[1] and a[2] == b[2]
 end
@@ -61,6 +63,7 @@ local function adjacent(pos)
 end
 
 local function direction(pos, dir)
+	dir = (dir - 1) % 6 + 1
 	return adjacent(pos)[dir]
 end
 
@@ -115,7 +118,7 @@ local function fan(pos, dis, dl, dr)
 				if dir == dr then
 					break
 				else
-					dir = dir % 6 + 1
+					dir = dir + 1
 				end
 			end
 		end
@@ -127,10 +130,41 @@ local function fan(pos, dis, dl, dr)
 	return res
 end
 
+local function distance(pos, tar, limit)
+	if cmp(pos, tar) then
+		return 0
+	end
+
+	local dis = 1
+	local res = { pos }
+	local queue = { pos }
+
+	while dis <= limit do
+		local new_queue = {}
+		for k, p in pairs(queue) do
+			if cmp(p, tar) then
+				return dis
+			end
+
+			local adj = adjacent(p)
+			for k, p in pairs(adj) do
+				if not util.find(res, p, cmp) then
+					table.insert(new_queue, p)
+					table.insert(res, p)
+				end
+			end
+		end
+		queue = new_queue
+		dis = dis + 1
+	end
+	return nil
+end
+
 return {
 	cmp = cmp,
 	adjacent = adjacent,
 	direction = direction,
 	range = range,
 	fan = fan,
+	distance = distance,
 }

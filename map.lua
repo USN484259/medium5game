@@ -14,20 +14,15 @@ return function(scale)
 			end
 			return nil
 		end,
-		tick = function(self)
-			-- do map ticking here
-			for k, v in pairs(self.entities) do
-				v:tick()
-			end
-		end,
+
 		spawn = function(self, name, team, pos)
 			if self:get(pos) then
-				return false
+				return nil
 			end
-			local obj = core(name, team, pos)
+			local obj = require(name)(team, pos)
 			obj.map = self
 			table.insert(self.entities, obj)
-			return true
+			return obj
 		end,
 
 		remove = function(self, obj)
@@ -39,6 +34,71 @@ return function(scale)
 			end
 			return false
 		end,
+
+		tick = function(self)
+			local queue = {}
+			for k, e in pairs(self.entities) do
+				if not e:alive() then
+					self:remove(e)
+				else
+					e.damage_hook = {}
+					e.heal_hook = {}
+
+					for k, v in pairs(e.template) do
+						e[k] = v
+					end
+
+					for k, b in pairs(e.buff) do
+						table.insert(queue, b)
+					end
+					e.buff = {}
+
+				end
+			end
+
+			table.sort(queue, function(a, b)
+				return a.priority < b.priority
+			end)
+
+			for i = 1, #queue, 1 do
+				if queue[i]:tick() then
+					table.insert(queue[i].owner.buff, queue[i])
+				end
+			end
+
+			for k, e in pairs(self.entities) do
+				if not e:alive() then
+					self:remove(e)
+				else
+					if e.generator then
+						e.energy = math.floor(math.min(e.energy_cap, e.energy + e.generator))
+					end
+					if e.inventory then
+						for k, v in pairs(e.inventory) do
+							v:tick()
+						end
+					end
+					if e.skills then
+						for k, v in pairs(e.skills) do
+							v:update(true)
+						end
+					end
+				end
+			end
+
+		end,
+--[[
+		action = function(self, entity, i_sk, ...)
+			local skill = entity.skills[i_sk]
+			if skill and skill:func(...) then
+				for k, v in pairs(entity.skills) do
+					v:update()
+				end
+
+				return true
+			end
+		end,
+--]]
 	}
 end
 
