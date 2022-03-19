@@ -2,26 +2,53 @@
 
 local util = require("util")
 
-local map_scale = 4
+local map_scale = 5
+local player_team = 1
 
 local function show_map(map)
+	print("--------map--------")
+	local team = {}
 	for k, e in pairs(map.entities) do
-		local str = "(" .. e.pos[1] .. "," .. e.pos[2] .. ")\t" .. e.name .. "\tHP " .. e.health .. '/' .. e.health_cap
+		local str = ""
+		if e.team == player_team then
+			table.insert(team, e)
+			str = tostring(#team) .. '\t'
+		else
+			str = "-\t"
+		end
+		str = str .. "(" .. e.pos[1] .. "," .. e.pos[2] .. ")\t" .. e.name .. "\tHP " .. e.health .. '/' .. e.health_cap
 		if e.energy then
 			str = str .. "\tMP " .. e.energy .. '/' .. e.energy_cap
 		end
 		print(str)
 	end
+
+	return team
 end
 
-local function ui(player)
-	-- show skill
-	print("0\tend round")
-	for i = 1, #player.skills, 1 do
-		local sk = player.skills[i]
+local function action_menu(entity)
+	print("--------character--------")
+	local str = entity.name .. "\tHP " .. entity.health .. '/' .. entity.health_cap .. '\tMP ' .. entity.energy .. '/' .. entity.energy_cap
+	for k, v in pairs(entity.status) do
+		str = str .. '\t' .. k
+	end
+	print(str)
+
+	for k, v in pairs(entity.inventory) do
+		print(v:get())
+	end
+
+	if not entity.active then
+		print("not active, go back ...")
+		return true
+	end
+
+	print("0\tGo back")
+	for i = 1, #entity.skills, 1 do
+		local sk = entity.skills[i]
 		sk:update()
 
-		local str = tostring(i) .. '\t' .. sk.name .. "\t" .. sk.type .. "\tCD " .. sk.remain .. '/' .. sk.cooldown .. "\tMP " .. (sk.cost or 0) .. '\t'
+		local str = tostring(i) .. '\t' .. sk.name .. "\t" .. sk.type .. "\tCD " .. sk.remain .. '/' .. sk.cooldown .. "\tMP " .. (sk.cost) .. '\t'
 		if sk.enable then
 			str = str .. "enabled"
 		else
@@ -29,48 +56,51 @@ local function ui(player)
 		end
 		print(str)
 	end
-	local cmd = io.read()
-	if not cmd then
-		return false
-	end
-	local sk = nil
-	local args = nil
-	for s in string.gmatch(cmd, '([^%s]+)') do
-		if args then
-			local val = tonumber(s)
-			table.insert(args, val or s)
-		else
-			local index = tonumber(s)
-			if index == 0 then
-				return true
+	
+	local sk
+	local args
+	while true do
+		local cmd = io.read()
+		sk = nil
+		args = nil
+		for s in string.gmatch(cmd, '([^%s]+)') do
+			if args then
+				local val = tonumber(s)
+				table.insert(args, val or s)
+			else
+				local index = tonumber(s)
+				if index == 0 then
+					return true
+				end
+				sk = entity.skills[index]
+				args = {}
 			end
-			sk = player.skills[index]
-			args = {}
+		end
 
-			if not sk then
-				return false
-			end
+		if sk then
+			break
 		end
 	end
 
 	local res
-	
-	local consume = (sk.cooldown > 0)
-
 	if sk.type == "target" or sk.type == "waypoint" then
-		res = sk:use(args)
+		res = entity:action(sk, args)
 	else
-		res = sk:use(table.unpack(args))
+		res = entity:action(sk, table.unpack(args))
 	end
-	
-	return consume and res
-	
+
+	if not res then
+		print("skill " .. sk.name .. " failed")
+	end
+
+	return res and not entity.active
 end
 
 local function main()
 	local map = require("map")(map_scale)
 
-	local player = map:spawn("shian", 1, {0, 0})
+	map:spawn("shian", 1, {1, 0})
+	map:spawn("chiyu", 1, {1, 1})
 
 	for n = 1, 10, 1 do
 		local d = math.random(map_scale)
@@ -80,13 +110,27 @@ local function main()
 
 	while true do
 		map:tick()
-		if not player:alive() then
-			break
+
+		while true do
+			local team = show_map(map)
+			if #team == 0 then
+				print("Game over")
+				return
+			elseif #team == #map.entities then
+				print("You win")
+				return
+			end
+			local selection = io.read("n")
+			if math.type(selection) == "integer" then
+				if selection == 0 then
+					break
+				elseif selection <= #team then
+					while not action_menu(team[selection]) do end
+				end
+			end
 		end
 
-		show_map(map)
-
-		while not ui(player) do end
+		print("Round end")
 	end
 
 end

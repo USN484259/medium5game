@@ -5,6 +5,7 @@ local hexagon = require("hexagon")
 local priority = {
 	first = 1,
 	stat = 2,
+	sanity = 3,
 	damage = 4,
 	shield = 5,
 	last = 6,
@@ -79,11 +80,7 @@ local function move(entity, waypoint)
 	local pos = entity.pos
 	for i = 1, #waypoint, 1 do
 		pos = hexagon.direction(pos, waypoint[i])
-		if pos[1] >= map.scale then
-			return false
-		end
-
-		if map:get(pos) then
+		if pos[1] >= map.scale or map:get(pos) then
 			return false
 		end
 	end
@@ -91,24 +88,27 @@ local function move(entity, waypoint)
 	return true
 end
 
-local function heal(entity, target, heal)
-	return for_area(entity, target, function(entity, source, heal)
-		if entity.team ~= source.team then
-			return nil
-		end
-		
-		for i = 1, #entity.heal_hook, 1 do
-			heal = entity.damage_hook[i]:func(entity, source, heal)
-			if not heal then
-				return 0
-			end
-		end
+local function teleport(entity, target)
+	local map = entity.map
+	if target[1] >= map.scale or map:get(target) then
+		return false
+	end
+	entity.pos = target
+	return true
+end
 
-		heal = math.max(0, math.min(heal, entity.health_cap - entity.health))
+local function heal(entity, heal)
+	for i = 1, #entity.heal_hook, 1 do
+		heal = entity.heal_hook[i]:func(entity, source, heal)
+		if not heal then
+			return 0
+		end
+	end
 
-		entity.health = math.floor(entity.health + heal)
-		return heal
-	end, entity, heal)
+	heal = math.max(0, math.min(heal, entity.health_cap - entity.health))
+
+	entity.health = math.floor(entity.health + heal)
+	return heal
 end
 
 local function damage(entity, target, damage)
@@ -124,10 +124,53 @@ local function damage(entity, target, damage)
 			end
 		end
 		local val = damage_to_hp(entity, damage)
-		entity.health = math.floor(entity.health - val)
 
+		if damage.element == "mental" then
+			entity.sanity = math.max(0, math.floor(entity.sanity - val))
+		else
+			entity.health = math.floor(entity.health - val)
+		end
+		if not entity:alive() then
+			source:killed(entity)
+			entity.map:remove(entity)
+		end
 		return val
 	end, entity, damage)
+end
+
+local function skill_update(skill, tick)
+	if tick then
+		skill.remain = math.max(skill.remain - 1, 0)
+	end
+end
+
+local function action(entity, skill, ...)
+	assert(entity == skill.owner)
+	if not entity.active then
+		return false
+	end
+	if not skill.enable or skill.remain > 0 then
+		return false
+	end
+
+	local cost = skill.cost
+	if skill.type == "waypoint" then
+		cost = cost * #select(1, ...)
+	end
+	if entity.energy < cost then
+		return false
+	end
+
+	local nowait = (skill.cooldown == 0)
+	local res = skill:use(...)
+
+	if res then
+		skill.remain = skill.cooldown
+		entity.energy = entity.energy - cost
+		entity.active = nowait
+	end
+
+	return res
 end
 
 local function new_entity(name, team, pos, template)
@@ -136,54 +179,32 @@ local function new_entity(name, team, pos, template)
 		pos = pos,
 		team = team,
 		template = template,
-
+		creature = false,
 		health = template.health_cap,
-		buff = {},
---[[
-		on_damage = function(self, val, element)
-			local ratio = 1 - (self.resistance[element] or 0)
-			local damage = val * ratio
-			if damage > 0 then
-				self.health = self.health - val * ratio
-				return true
-			else
-				return false
-			end
-		end,
---]]
+
 		damage_hook = {},
 		heal_hook = {},
+
+		buff = {},
 
 		alive = function(self)
 			return self.health > 0
 		end,
-		--[[
-		update = function(self, tick)
-			local new_buff = {}
-			for k, v in pairs(template) do
-				self[k] = v
-			end
-			table.sort(self.buff)
-			for i = 1, #self.buff, 1 do
-				if self.buff[i]:func(self, tick) then
-					table.insert(new_buff, self.buff[i])
-				end
-			end
-
-			self.buff = new_buff
+		killed = function(self, target)
 		end,
-		--]]
-
 	}
 end
 
 local function new_character(name, team, pos, template, skills)
 	local obj = util.merge_table(new_entity(name, team, pos, template), {
+		creature = true,
 		status = {},
 		energy = template.generator,
 		sanity = 100,
 		inventory = {},
 		skills = {},
+		active = true,
+		action = action,
 	})
 
 	for i = 1, #skills, 1 do
@@ -204,8 +225,10 @@ return {
 	for_area = for_area,
 	for_team = for_team,
 	move = move,
+	teleport = teleport,
 	heal = heal,
 	damage = damage,
+	skill_update = skill_update,
 	new_entity = new_entity,
 	new_character = new_character,
 }

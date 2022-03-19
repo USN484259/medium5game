@@ -30,6 +30,13 @@ local function copy_table(src, recursive)
 	return res
 end
 
+local function append_table(tar, src)
+	for i = 1, #src, 1 do
+		table.insert(tar, src[i])
+	end
+	return tar
+end
+
 local function merge_table(tar, src)
 	for k,v in pairs(src) do
 		if type(v) == "table" and type(tar[k]) == "table" then
@@ -46,5 +53,6 @@ return {
 	find = find,
 	dump_table = dump_table,
 	copy_table = copy_table,
+	append_table = append_table,
 	merge_table = merge_table,
 }

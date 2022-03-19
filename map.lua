@@ -38,22 +38,18 @@ return function(scale)
 		tick = function(self)
 			local queue = {}
 			for k, e in pairs(self.entities) do
-				if not e:alive() then
-					self:remove(e)
-				else
-					e.damage_hook = {}
-					e.heal_hook = {}
+				e.damage_hook = {}
+				e.heal_hook = {}
 
-					for k, v in pairs(e.template) do
-						e[k] = v
-					end
-
-					for k, b in pairs(e.buff) do
-						table.insert(queue, b)
-					end
-					e.buff = {}
-
+				for k, v in pairs(e.template) do
+					e[k] = v
 				end
+
+				for k, b in pairs(e.buff) do
+					table.insert(queue, b)
+				end
+				e.buff = {}
+
 			end
 
 			table.sort(queue, function(a, b)
@@ -83,22 +79,15 @@ return function(scale)
 							v:update(true)
 						end
 					end
+
+					if e.action then
+						e.active = true
+					end
 				end
 			end
 
 		end,
---[[
-		action = function(self, entity, i_sk, ...)
-			local skill = entity.skills[i_sk]
-			if skill and skill:func(...) then
-				for k, v in pairs(entity.skills) do
-					v:update()
-				end
 
-				return true
-			end
-		end,
---]]
 	}
 end
 

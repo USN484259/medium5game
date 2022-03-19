@@ -20,7 +20,7 @@ local template = {
 		star = 0.3,
 		mental = 0.7,
 	},
-
+	
 	damage_hook = {
 		{
 			priority = core.priority.last,
@@ -58,7 +58,7 @@ local buff_shelter = {
 	priority = core.priority.shield,
 	tick = function(self)
 		local entity = self.owner
-		if entity.energy <= 0 then
+		if entity.energy <= 0 or entity.status.insane then
 			entity.status.shelter = nil
 		end
 		if not entity.status.shelter then
@@ -130,6 +130,7 @@ local skill_move = {
 	remain = 0,
 	enable = true,
 	cost = 40,
+	step = 1,
 
 	update = function(self, tick)
 		local entity = self.owner
@@ -149,23 +150,12 @@ local skill_move = {
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
-		if not self.enable or self.remain > 0 then
-			return false
-		end
-		if #waypoint > 1 then
-			return false
-		end
-		if entity.energy < self.cost then
+
+		if #waypoint == 0 or #waypoint > self.step then
 			return false
 		end
 
-		local res = core.move(entity, waypoint)
-		if res then
-			entity.energy = entity.energy - self.cost
-			self.remain = self.cooldown
-		end
-
-		return res
+		return core.move(entity, waypoint)
 	end,
 }
 
@@ -189,12 +179,6 @@ local skill_attack = {
 	end,
 	use = function(self, direction)
 		local entity = self.owner
-		if not self.enable or self.remain > 0 then
-			return false
-		end
-		if entity.energy < self.cost then
-			return false
-		end
 		local target = hexagon.direction(entity.pos, direction)
 		core.damage(entity, { target }, {
 			damage = entity.power,
@@ -211,14 +195,12 @@ local skill_attack = {
 			accuracy = 1,
 		})
 
-		entity.energy = entity.energy - self.cost
-		self.remain = self.cooldown
 		return true
 	end,
 }
 
-local skill_change_mode = {
-	name = "change_mode",
+local skill_transform = {
+	name = "transform",
 	type = "toggle",
 	cooldown = 0,
 	remain = 0,
@@ -236,28 +218,20 @@ local skill_change_mode = {
 		else
 			self.cooldown = 0
 		end
-		if tick then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		return core.skill_update(self, tick)
 	end,
 	get = function(self)
 		return self.owner.inventory[1].mode
 	end,
 	use = function(self, mode)
 		local entity = self.owner
-		if not self.enable or self.remain > 0 then
-			return false
-		end
 
 		if mode ~= "hammer" and mode ~= "shield" then
 			return false
 		end
 		
 		entity.inventory[1].mode = mode
-		self.remain = self.cooldown
-
 		entity.status.shelter = nil
-		-- entity:update()
 		return true
 	end,
 }
@@ -278,18 +252,10 @@ local skill_cannon = {
 
 		self.enable = (mode ~= "shield" and not entity.status.final_guard)
 
-		if tick then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		return core.skill_update(self, tick)
 	end,
 	use = function(self, target)
 		local entity = self.owner
-		if not self.enable or self.remain > 0 then
-			return false
-		end
-		if entity.energy < self.cost then
-			return false
-		end
 
 		local dis = hexagon.distance(entity.pos, target, 2 * entity.map.scale)
 		if  dis < self.range[1] or dis > self.range[2] then
@@ -310,8 +276,6 @@ local skill_cannon = {
 			accuracy = 1,
 		})
 
-		entity.energy = entity.energy - self.cost
-		self.remain = self.cooldown
 		return true
 	end,
 }
@@ -330,18 +294,10 @@ local skill_spike = {
 
 		self.enable = (mode == "shield" and not entity.status.final_guard)
 
-		if tick then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		return core.skill_update(self, tick)
 	end,
 	use = function(self, direction)
 		local entity = self.owner
-		if not self.enable or self.remain > 0 then
-			return false
-		end
-		if entity.energy < self.cost then
-			return false
-		end
 		
 		local target = hexagon.fan(entity.pos, 2, direction + 5, direction + 7)
 		core.damage(entity, target, {
@@ -351,8 +307,6 @@ local skill_spike = {
 			type = "ground",
 		})
 
-		entity.energy = entity.energy - self.cost
-		self.remain = self.cooldown
 		return true
 	end,
 }
@@ -373,19 +327,15 @@ local skill_shelter = {
 		local active = entity.status.shelter
 
 		self.enable = (mode == "shield" and not (entity.status.final_guard or active))
-		if tick and not active then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		
+		return core.skill_update(self, tick)
 	end,
 	use = function(self)
 		local entity = self.owner
-		if not self.enable then
-			return false
-		end
+
 		entity.status.shelter = true
 		core.add_buff(entity, buff_shelter)
 
-		self.remain = self.cooldown
 		return true
 	end,
 }
@@ -403,20 +353,14 @@ local skill_final_guard = {
 		local active = entity.status.final_guard
 		self.enable = not (active or entity.status.shelter)
 
-		if tick and not active then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		return core.skill_update(self, tick and not active)
 	end,
 	use = function(self)
 		local entity = self.owner
-		if not self.enable then
-			return false
-		end
 
 		entity.status.final_guard = true
 		core.add_buff(entity, buff_final_guard)
 
-		self.remain = self.cooldown
 		return true
 	end,
 }
@@ -425,20 +369,21 @@ return function(team, pos)
 	local shian = core.new_character("shian", team, pos, template, {
 	skill_move,
 	skill_attack,
-	skill_change_mode,
+	skill_transform,
 	skill_cannon,
 	skill_spike,
 	skill_shelter,
 	skill_final_guard,
 })
-	shian.inventory = {
-		{
-			mode = "hammer",
-			tick = function(self)
-				return true
-			end,
-		}
-	}
+	table.insert(shian.inventory, {
+		name = "yankai",
+		mode = "hammer",
+		tick = function(self)
+		end,
+		get = function(self)
+			return self.name .. '\t' .. self.mode
+		end,
+	})
 
 	shian.alive = function(self)
 		return self.health > 0 or self.status.final_guard
