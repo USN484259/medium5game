@@ -1,6 +1,7 @@
 local util = require("util")
 local hexagon = require("hexagon")
 local core = require("core")
+local buff = require("buff")
 
 local template = {
 	health_cap = 600,
@@ -15,40 +16,42 @@ local template = {
 		physical = 0.6,
 		fire = 0.8,
 		water = 0.4,
-		wind = 0.8,
+		air = 0.8,
 		earth = 0.9,
 		star = 0.3,
 		mental = 0.7,
 	},
-	
-	damage_hook = {
-		{
-			priority = core.priority.last,
-			func = function(self, entity, source, damage)
-				if entity.inventory[1].mode ~= "shield" or entity.status.final_guard then
-					return damage
-				end
-				local val = core.damage_to_hp(entity, damage) / 2
 
-				if entity.energy >= val then
-					entity.energy = math.floor(entity.energy - val)
-					return nil
-				else
-					val = val - entity.energy
-					entity.energy = 0
-					return core.hp_to_damage(entity, val, damage)
-				end
-			end,
-		},
-	},
-	heal_hook = {
-		priority = core.priority.first,
-		func = function(self, entity, source, heal)
-			if entity.status.final_guard then
-				return nil
-			else
-				return heal
+	hook = {{
+		priority = core.priority.last,
+		func = function(self, entity, damage)
+			if entity.inventory[1]:get() ~= "shield" or entity.status.ultimate then
+				return damage
 			end
+
+			-- shield has 75% resistance, absorb 2 damage using 1 energy
+			entity.energy, damage = core.energy_shield(damage, entity.energy, 8)
+
+			return damage
+		end,
+		}},
+
+	quiver = {
+		name = "earth",
+		cost = 60,
+		range = 5,
+		single = function(entity, target)
+			entity.map:damage(entity.team, { target }, {
+				damage = entity.power * 2,
+				element = "earth",
+			})
+		end,
+
+		area = function(entity, area)
+			entity.map:damage(entity.team, area, {
+				damage = 200,
+				element = "earth",
+			})
 		end,
 	},
 }
@@ -58,34 +61,37 @@ local buff_shelter = {
 	priority = core.priority.shield,
 	tick = function(self)
 		local entity = self.owner
-		if entity.energy <= 0 or entity.status.insane then
-			entity.status.shelter = nil
-		end
-		if not entity.status.shelter then
+		if entity.energy <= 0 or not entity.shelter then
 			return false
 		end
-		local range = hexagon.range(entity.pos, 1)
-		core.for_area(entity, range, core.add_damage_hook, {
-			priority = core.priority.shield,
-			origin = entity,
-			func = function(self, entity, source, damage)
-				if not self.holder.status.shelter then
-					return damage
-				end
-				local val = core.damage_to_hp(self.origin, damage)
-
-				if self.origin.energy >= val then
-					self.origin.energy = math.floor(self.origin.energy - val)
-					return nil
-				else
-					val = val - self.origin.energy
-					self.origin.energy = 0
-					return core.hp_to_damage(self.origin, val, damage)
-				end
-			end
-		})
+		entity.status.shelter = true
 		entity.generator = entity.generator * 2
 		return true
+	end,
+	defer = function(self)
+		local entity = self.owner
+		if not entity.shelter then
+			return
+		end
+		local list = entity.map:get_area(hexagon.range(entity.pos, 1))
+		for k, e in pairs(list) do
+			if e.team == entity.team then
+				core.hook(e, {
+					priority = core.priority.shield,
+					origin = entity,
+					func = function(self, entity, damage)
+						if not self.holder.status.shelter then
+							return damage
+						end
+
+						local origin = self.origin
+						-- shield has 75% resistance, absorb 1 damage using 1 energy
+						origin.energy, damage = core.energy_shield(damage, origin.energy, 4)
+						return damage
+					end
+				})
+			end
+		end
 	end,
 }
 
@@ -95,30 +101,32 @@ local buff_final_guard = {
 	duration = 4,
 	tick = function(self)
 		local entity = self.owner
-		if self.duration <= 0 then
-			entity.status.final_guard = nil
+		if not core.common_tick(self) then
 			return false
 		end
+		local list = entity.map:get_team(entity.team)
+		for k, e in pairs(list) do
+			core.hook(e, {
+				priority = core.priority.shield,
+				origin = entity,
+				func = function(self, entity, damage)
+					local origin = self.origin
 
-		core.for_team(entity, core.add_damage_hook, {
-			priority = core.priority.first,
-			origin = entity,
-			func = function(self, entity, source, damage)
-				local val = core.damage_to_hp(self.origin, damage)
-
-				if self.origin.energy >= val then
-					self.origin.energy = math.floor(self.origin.energy - val)
-				else
-					val = val - self.origin.energy
-					self.origin.energy = 0
-					self.origin.health = math.floor(self.origin.health - val)
+					-- shield has 50% resistance, absorb 1 damage using 1 energy or 1 health
+					origin.energy, damage = core.energy_shield(damage, origin.energy, 2)
+					if damage then
+						damage.type = nil
+						core.damage(origin, damage)
+					end
+					return nil
 				end
-
-				return nil
-			end
-		})
+			})
+		end
+		entity.status.ultimate = true
 		entity.generator = 0
-		self.duration = self.duration - 1
+		for k, v in pairs(entity.resistance) do
+			entity.resistance[k] = math.min(v, 0.2)
+		end
 		return true
 	end,
 }
@@ -134,19 +142,14 @@ local skill_move = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		self.enable = not (entity.status.final_guard or entity.status.shelter)
-
-		local mode = entity.inventory[1].mode
-
+		local mode = entity.inventory[1]:get()
 		if mode == "shield" then
 			self.cost = 80
 		else
 			self.cost = 40
 		end
 
-		if tick then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		self.enable = core.skill_update(self, tick) and not entity.status.shelter
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
@@ -169,30 +172,25 @@ local skill_attack = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		local mode = entity.inventory[1].mode
+		local mode = entity.inventory[1]:get()
 
-		self.enable = (mode ~= "shield" and not entity.status.final_guard)
-
-		if tick then
-			self.remain = math.max(self.remain - 1, 0)
-		end
+		self.enable = core.skill_update(self, tick) and mode ~= "shield"
 	end,
 	use = function(self, direction)
 		local entity = self.owner
 		local target = hexagon.direction(entity.pos, direction)
-		core.damage(entity, { target }, {
+		entity.map:damage(entity.team, { target }, {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
 			type = "ground",
-		})
-		
+		}, "down", 1)
+
 		local splash = hexagon.range(target, 1)
 
-		core.damage(entity, splash, {
+		entity.map:damage(entity.team, splash, {
 			damage = entity.power / 10,
 			element = "earth",
-			accuracy = 1,
 		})
 
 		return true
@@ -207,31 +205,22 @@ local skill_transform = {
 	enable = true,
 	cost = 0,
 
-	modes = { "hammer", "shield" },
-
 	update = function(self, tick)
 		local entity = self.owner
-		self.enable = not entity.status.final_guard
 
 		if entity.status.shelter then
 			self.cooldown = 1
 		else
 			self.cooldown = 0
 		end
-		return core.skill_update(self, tick)
-	end,
-	get = function(self)
-		return self.owner.inventory[1].mode
-	end,
-	use = function(self, mode)
-		local entity = self.owner
 
-		if mode ~= "hammer" and mode ~= "shield" then
-			return false
-		end
-		
-		entity.inventory[1].mode = mode
-		entity.status.shelter = nil
+		core.skill_update(self, tick)
+	end,
+
+	use = function(self)
+		local entity = self.owner
+		entity.inventory[1]:next()
+		entity.shelter = nil
 		return true
 	end,
 }
@@ -248,32 +237,29 @@ local skill_cannon = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		local mode = entity.inventory[1].mode
+		local mode = entity.inventory[1]:get()
 
-		self.enable = (mode ~= "shield" and not entity.status.final_guard)
-
-		return core.skill_update(self, tick)
+		self.enable = core.skill_update(self, tick) and mode ~= "shield"
 	end,
 	use = function(self, target)
 		local entity = self.owner
 
-		local dis = hexagon.distance(entity.pos, target, 2 * entity.map.scale)
-		if  dis < self.range[1] or dis > self.range[2] then
+		local dis = hexagon.distance(entity.pos, target, self.range[2])
+		if not dis or dis < self.range[1] then
 			return false
 		end
-		
-		core.damage(entity, { target }, {
+
+		entity.map:damage(entity.team, { target }, {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
-		})
+		}, "down", 1)
 
 		local splash = hexagon.range(target, 1)
 
-		core.damage(entity, splash, {
+		entity.map:damage(entity.team, splash, {
 			damage = entity.power / 10,
 			element = "earth",
-			accuracy = 1,
 		})
 
 		return true
@@ -290,22 +276,19 @@ local skill_spike = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		local mode = entity.inventory[1].mode
+		local mode = entity.inventory[1]:get()
 
-		self.enable = (mode == "shield" and not entity.status.final_guard)
-
-		return core.skill_update(self, tick)
+		self.enable = core.skill_update(self, tick) and mode == "shield"
 	end,
 	use = function(self, direction)
 		local entity = self.owner
-		
+
 		local target = hexagon.fan(entity.pos, 2, direction + 5, direction + 7)
-		core.damage(entity, target, {
+		entity.map:damage(entity.team, target, {
 			damage = entity.power / 5,
 			element = "earth",
-			accuracy = 1,
 			type = "ground",
-		})
+		}, "block", 1)
 
 		return true
 	end,
@@ -318,23 +301,21 @@ local skill_shelter = {
 	remain = 0,
 	enable = true,
 	cost = 0,
-
 	range = 1,
+	noblock = true,
 
 	update = function(self, tick)
 		local entity = self.owner
-		local mode = entity.inventory[1].mode
+		local mode = entity.inventory[1]:get()
 		local active = entity.status.shelter
 
-		self.enable = (mode == "shield" and not (entity.status.final_guard or active))
-		
-		return core.skill_update(self, tick)
+		self.enable = core.skill_update(self, tick and not active) and mode == "shield" and not active
 	end,
 	use = function(self)
 		local entity = self.owner
 
-		entity.status.shelter = true
-		core.add_buff(entity, buff_shelter)
+		entity.shelter = true
+		buff(entity, buff_shelter)
 
 		return true
 	end,
@@ -347,42 +328,48 @@ local skill_final_guard = {
 	remain = 0,
 	enable = true,
 	cost = 0,
+	noblock = true,
 
 	update = function(self, tick)
 		local entity = self.owner
-		local active = entity.status.final_guard
-		self.enable = not (active or entity.status.shelter)
+		local active = entity.status.ultimate
 
-		return core.skill_update(self, tick and not active)
+		self.enable = core.skill_update(self, tick and not active) and not entity.status.shelter
 	end,
 	use = function(self)
 		local entity = self.owner
 
-		entity.status.final_guard = true
-		core.add_buff(entity, buff_final_guard)
+		entity.status.ultimate = true
+		buff(entity, buff_final_guard)
 
 		return true
 	end,
 }
 
-return function(team, pos)
-	local shian = core.new_character("shian", team, pos, template, {
-	skill_move,
-	skill_attack,
-	skill_transform,
-	skill_cannon,
-	skill_spike,
-	skill_shelter,
-	skill_final_guard,
-})
+return function()
+	local shian = core.new_character("shian", template, {
+		skill_move,
+		skill_attack,
+		skill_transform,
+		skill_cannon,
+		skill_spike,
+		skill_shelter,
+		skill_final_guard,
+	})
+
 	table.insert(shian.inventory, {
 		name = "yankai",
-		mode = "hammer",
+		modes = { "hammer", "shield" },
+		select = 1,
 		tick = function(self)
 		end,
 		get = function(self)
-			return self.name .. '\t' .. self.mode
+			return self.modes[self.select]
 		end,
+		next = function(self)
+			self.select = self.select % #self.modes + 1
+		end,
+
 	})
 
 	shian.alive = function(self)

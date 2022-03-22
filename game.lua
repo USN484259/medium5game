@@ -34,8 +34,24 @@ local function action_menu(entity)
 	end
 	print(str)
 
-	for k, v in pairs(entity.inventory) do
-		print(v:get())
+	for k, item in pairs(entity.inventory) do
+		local str = item.name .. '\t'
+		if item.remain then
+			str = str .. item.remain .. '/' .. item.cooldown
+		elseif item.modes then
+			for i = 1, #item.modes, 1 do
+				local m = item.modes[i]
+				if type(m) == "table" then
+					m = m.name
+				end
+				if i == item.select then
+					str = str .. '[' .. m .. "] "
+				else
+					str = str .. m .. ' '
+				end
+			end
+		end
+		print(str)
 	end
 
 	if not entity.active then
@@ -56,7 +72,7 @@ local function action_menu(entity)
 		end
 		print(str)
 	end
-	
+
 	local sk
 	local args
 	while true do
@@ -85,6 +101,8 @@ local function action_menu(entity)
 	local res
 	if sk.type == "target" or sk.type == "waypoint" then
 		res = entity:action(sk, args)
+	elseif sk.type == "vector" then
+		res = entity:action(sk, { args[1], args[2] }, args[3])
 	else
 		res = entity:action(sk, table.unpack(args))
 	end
@@ -96,11 +114,34 @@ local function action_menu(entity)
 	return res and not entity.active
 end
 
+local function player_control(map)
+	while true do
+		local team = show_map(map)
+		if #team == 0 then
+			print("Game over")
+			os.exit()
+		elseif #team == #map.entities then
+			print("You win")
+			os.exit()
+		end
+		local selection = io.read("n")
+		if math.type(selection) == "integer" then
+			if selection == 0 then
+				break
+			elseif selection <= #team then
+				while not action_menu(team[selection]) do end
+			end
+		end
+	end
+
+end
+
 local function main()
 	local map = require("map")(map_scale)
 
 	map:spawn("shian", 1, {1, 0})
 	map:spawn("chiyu", 1, {1, 1})
+	map:spawn("cangqiong", 1, {0, 0})
 
 	for n = 1, 10, 1 do
 		local d = math.random(map_scale)
@@ -109,28 +150,9 @@ local function main()
 	end
 
 	while true do
-		map:tick()
-
-		while true do
-			local team = show_map(map)
-			if #team == 0 then
-				print("Game over")
-				return
-			elseif #team == #map.entities then
-				print("You win")
-				return
-			end
-			local selection = io.read("n")
-			if math.type(selection) == "integer" then
-				if selection == 0 then
-					break
-				elseif selection <= #team then
-					while not action_menu(team[selection]) do end
-				end
-			end
-		end
-
-		print("Round end")
+		map:tick(0)
+		map:tick(1, player_control)
+		-- map:tick(2, ai_control)
 	end
 
 end

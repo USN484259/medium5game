@@ -1,6 +1,7 @@
 local util = require("util")
 local hexagon = require("hexagon")
 local core = require("core")
+local buff = require("buff")
 
 local template = {
 	health_cap = 700,
@@ -11,22 +12,40 @@ local template = {
 	sight = 3,
 	energy_cap = 1000,
 	generator = 100,
-
+	moved = false,
 	resistance = {
 		physical = 0.2,
 		file = 0.9,
 		water = -0.2,
-		wind = 0,
+		air = 0,
 		earth = 0.2,
 		star = 0,
 		mental = 0.4,
 	},
+	quiver = {
+		name = "fire",
+		cost = 20,
+		single = function(entity, target)
+			entity.map:damage(entity.team, { target }, {
+				damage = 60,
+				element = "fire",
+			}, "burn", 2)
+		end,
 
+		area = function(entity, area)
+			entity.map:damage(entity.team, area, {
+				damage = 100,
+				element = "fire",
+			})
+
+			entity.map:effect(entity.team, area, "flame", 2)
+		end,
+	},
 }
 
 local buff_overkill = {
 	name = "overkill",
-	priority = core.priority.sanity,
+	priority = core.priority.post_stat,
 	tick = function(self)
 		local entity = self.owner
 
@@ -38,17 +57,53 @@ local buff_overkill = {
 		return true
 	end,
 }
+--[[
+local effect_flame = {
+	name = "flame",
+	priority = core.priority.damage,
+	tick = function(self)
+		if self.duration <= 0 then
+			return false
+		end
 
+		local e = self.map:get(self.pos)
+		if e and e.team ~= self.origin.team then
+			core.add_buff(e, {
+				name = "ignition",
+				priority = core.priority.damage,
+				effect = self,
+				tick = function(self)
+					core.damage(self.owner, self.effect.origin, {
+						damage = self.effect.power / 2,
+						element = "fire",
+						accuracy = 1,
+					})
+					return false
+				end,
+			})
+		end
+
+		self.duration = self.duration - 1
+		return true
+	end,
+	contact = function(self, obj)
+		-- TODO
+	end,
+}
+--]]
 local skill_move = {
 	name = "move",
 	type = "waypoint",
-	cooldown = 1,
+	cooldown = 0,
 	remain = 0,
 	enable = true,
 	cost = 20,
 	step = 2,
 
-	update = core.skill_update,
+	update = function(self, tick)
+		local entity = self.owner
+		self.enable = core.skill_update(self, tick) and not entity.moved
+	end,
 	use = function(self, waypoint)
 		local entity = self.owner
 
@@ -56,8 +111,12 @@ local skill_move = {
 			return false
 		end
 
-		return core.move(entity, waypoint)
+		local res = core.move(entity, waypoint)
+		if res then
+			entity.moved = true
+		end
 
+		return res
 	end,
 }
 
@@ -74,16 +133,19 @@ local skill_attack = {
 		local entity = self.owner
 
 		local target = hexagon.direction(entity.pos, direction)
-		core.damage(entity, { target }, {
+		local d, k = entity.map:damage(entity.team, { target }, {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
 		})
-		core.damage(entity, { target }, {
-			damage = entity.power,
+		entity.kill_count = entity.kill_count + k
+
+		local d, k = entity.map:damage(entity.team, { target }, {
+			damage = entity.power / 2,
 			element = "fire",
 			accuracy = entity.accuracy,
-		})
+		}, "burn", 1)
+		entity.kill_count = entity.kill_count + k
 
 		return true
 	end,
@@ -110,17 +172,18 @@ local skill_charge = {
 
 		local res = core.teleport(entity, line[#line])
 		if res then
-			core.damage(entity, line, {
+			local d, k = entity.map:damage(entity.team, line, {
 				damage = entity.power,
 				element = "fire",
-				accuracy = 1,
-			})
+			}, "burn", 1)
+			entity.kill_count = entity.kill_count + k
 
-			core.damage(entity, { line[#line - 1] }, {
+			local d, k = entity.map:damage(entity.team, { line[#line - 1] }, {
 				damage = entity.power * 2,
 				element = "physical",
-				accuracy = 1,
-			})
+				accuracy = entity.accuracy,
+			}, "down", 1)
+			entity.kill_count = entity.kill_count + k
 		end
 
 		return res
@@ -138,29 +201,32 @@ local skill_ignition = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		self.enable = (entity.inventory[1].remain == 0)
-		return core.skill_update(self, tick)
+		self.enable = core.skill_update(self, tick) and (entity.inventory[1].remain == 0)
 	end,
 	use = function(self, target)
 		local entity = self.owner
 
-		local dis = hexagon.distance(entity.pos, target, 2 * entity.map.scale)
-		if dis < self.range[1] or dis > self.range[2] then
+		local dis = hexagon.distance(entity.pos, target, self.range[2])
+		if not dis or dis < self.range[1]  then
 			return false
 		end
 
-		core.damage(entity, { target }, {
-			damage = entity.power,
-			element = "fire",
-			accuracy = 1,
-		})
-		local splash = hexagon.range(target, 1)
+		local seed = {
+			name = "fire",
+			owner = entity,
+			pos = target,
+			range = 1,
+		}
 
-		core.damage(entity, splash, {
-			damage = entity.power / 2,
-			element = "fire",
-			accuracy = 1,
-		})
+		seed = entity.map:contact(seed)
+		if seed then
+			local area = hexagon.range(seed.pos, seed.range)
+			entity.map:damage(entity.team, area, {
+				damage = entity.power,
+				element = "fire",
+			}, "burn", 1)
+			entity.map:effect(entity.team, area, "flame", 2)
+		end
 
 		local feather = entity.inventory[1]
 		feather.remain = feather.cooldown
@@ -181,19 +247,20 @@ local skill_sweep = {
 	use = function(self, direction)
 		local entity = self.owner
 
-		local target = hexagon.fan(entity.pos, 1, direction + 5, direction + 7)
-		core.damage(entity, target, {
+		local area = hexagon.fan(entity.pos, 1, direction + 5, direction + 7)
+		local d, k = entity.map:damage(entity.team, area, {
 			damage = entity.power,
 			element = "physical",
-			accuracy = 1,
+			accuracy = entity.accuracy,
 		})
+		entity.kill_count = entity.kill_count + k
 
-		target = hexagon.fan(entity.pos, 2, direction + 5, direction + 7)
-		core.damage(entity, target, {
+		local area = hexagon.fan(entity.pos, 2, direction + 5, direction + 7)
+		local d, k = entity.map:damage(entity.team, area, {
 			damage = entity.power,
 			element = "fire",
-			accuracy = 1,
-		})
+		}, "burn", 1)
+		entity.kill_count = entity.kill_count + k
 
 		return true
 	end,
@@ -209,22 +276,16 @@ local skill_nirvana = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		self.enable = (entity.health / entity.health_cap < 0.2)
-
-		return core.skill_update(self, tick)
+		self.enable = core.skill_update(self, tick) and (entity.health / entity.health_cap < 0.2)
 	end,
 	use = function(self, target)
 		local entity = self.owner
 
-		local split = hexagon.range(entity.pos, 1)
+		local area = hexagon.range(entity.pos, 1)
 
 		local res = core.teleport(entity, target)
 		if res then
-			core.damage(entity, split, {
-				damage = entity.power / 4,
-				element = "fire",
-				accuracy = 1,
-			})
+			entity.map:effect(entity.team, area, "flame", 1)
 		end
 
 		return res
@@ -241,8 +302,7 @@ local skill_phoenix = {
 
 	update = function(self, tick)
 		local entity = self.owner
-		self.enable = (entity.inventory[1].remain == 0)
-		return core.skill_update(self, tick)
+		self.enable = core.skill_update(self, tick) and (entity.inventory[1].remain == 0)
 	end,
 	use = function(self, direction, distance)
 		local entity = self.owner
@@ -250,7 +310,7 @@ local skill_phoenix = {
 		if distance <= 0 then
 			return false
 		end
-		
+
 		local main = hexagon.fan(entity.pos, distance, direction, direction)
 		local sides = util.append_table(
 			hexagon.fan(hexagon.direction(entity.pos, direction + 5), distance, direction, direction),
@@ -259,28 +319,32 @@ local skill_phoenix = {
 
 		local res = core.teleport(entity, main[#main])
 		if res then
-			core.damage(entity, main, {
+			local d, k = entity.map:damage(entity.team, main, {
 				damage = entity.power * 2,
 				element = "fire",
-				accuracy = 1,
-			})
+			}, "burn", 2)
+			entity.kill_count = entity.kill_count + k
 
-			core.damage(entity, sides, {
+			local d, k = entity.map:damage(entity.team, sides, {
 				damage = entity.power,
 				element = "fire",
-				accuracy = 1,
-			})
+			}, "burn", 2)
+			entity.kill_count = entity.kill_count + k
 
-			core.damage(entity, { main[#main - 1] }, {
+			local d, k = entity.map:damage(entity.team, { main[#main - 1] }, {
 				damage = entity.power * 2,
 				element = "fire",
-				accuracy = 1,
 			})
-			core.damage(entity, { main[#main - 1] }, {
+			entity.kill_count = entity.kill_count + k
+
+			local d, k = entity.map:damage(entity.team, { main[#main - 1] }, {
 				damage = entity.power * 2,
 				element = "physical",
-				accuracy = 1,
-			})
+			}, "down", 2)
+			entity.kill_count = entity.kill_count + k
+
+			local area = util.append_table(main, sides)
+			entity.map:effect(entity.team, area, "flame", 2)
 
 			local feather = entity.inventory[1]
 			feather.remain = feather.cooldown
@@ -288,11 +352,10 @@ local skill_phoenix = {
 
 		return res
 	end,
-	
 }
 
-return function(team, pos)
-	local chiyu = core.new_character("chiyu", team, pos, template, {
+return function()
+	local chiyu = core.new_character("chiyu", template, {
 		skill_move,
 		skill_attack,
 		skill_charge,
@@ -306,22 +369,12 @@ return function(team, pos)
 		name = "feather",
 		cooldown = 5,
 		remain = 0,
-		tick = function(self)
-			self.remain = math.max(self.remain - 1, 0)
-		end,
-		get = function(self)
-			return self.name .. '\t' .. self.remain .. '/' .. self.cooldown
-		end,
+		tick = core.common_tick,
 	})
 
 	chiyu.kill_count = 0
-	chiyu.killed = function(self, target)
-		local heal = math.min(target.health_cap / 20, self.health_cap / 10)
-		core.heal(self, heal)
-		self.kill_count = self.kill_count + 1
-	end
 
-	core.add_buff(chiyu, buff_overkill)
+	buff(chiyu, buff_overkill)
 
 	return chiyu
 end

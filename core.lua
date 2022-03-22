@@ -5,74 +5,65 @@ local hexagon = require("hexagon")
 local priority = {
 	first = 1,
 	stat = 2,
-	sanity = 3,
+	post_stat = 3,
 	damage = 4,
 	shield = 5,
 	last = 6,
 }
 
-local function damage_to_hp(entity, damage)
-	local ratio = entity.resistance[damage.element] or 0
-	return damage.damage * (1 - ratio)
-end
-
-local function hp_to_damage(entity, hp, damage)
-	local ratio = entity.resistance[damage.element] or 0
-	if ratio == 1 then
-		return nil
+local function common_tick(obj)
+	if obj.duration then
+		if obj.duration <= 0 then
+			return false
+		else
+			obj.duration = obj.duration - 1
+		end
+	elseif obj.remain then
+		obj.remain = math.max(obj.remain - 1, 0)
+	else
+		error(obj)
 	end
-	return util.merge_table(damage, {
-		damage = hp / (1 - ratio)
-	})
-end
-
-local function add_buff(entity, buff)
-	table.insert(entity.buff, util.merge_table(util.copy_table(buff), {
-		owner = entity
-	}))
 	return true
 end
 
-local function add_damage_hook(entity, hook)
+local function skill_update(skill, tick)
+	local entity = skill.owner
+	local enable = true
+
+	if entity.status.down then
+		enable = false
+		tick = false
+	end
+
+	if entity.status.ultimate then
+		enable = false
+	end
+
+	if entity.status.block and not skill.noblock then
+		enable = false
+	end
+
+	if tick then
+		common_tick(skill)
+	end
+	skill.enable = enable
+	return enable
+end
+
+local function energy_shield(damage, energy, ratio)
+	ratio = ratio or 1
+	local cap = energy * ratio
+	if damage.damage <= cap then
+		return math.floor(energy - damage.damage / ratio)
+	else
+		damage.damage = damage.damage - cap
+		return 0, damage
+	end
+end
+
+local function hook(entity, hook)
 	table.insert(entity.damage_hook, util.copy_table(hook))
 	return true
-end
-
-local function for_area(entity, target, func, ...)
-	local map = entity.map
-	local count = 0
-	local sum = 0
-	for i = 1, #target, 1 do
-		local e = map:get(target[i])
-		if e then
-			local res = func(e, ...)
-			if res then
-				count = count + 1
-			end
-			if type(res) == "number" then
-				sum = sum + res
-			end
-		end
-	end
-	return count, sum
-end
-
-local function for_team(entity, func, ...)
-	local map = entity.map
-	local count = 0
-	local sum = 0
-	for k, v in pairs(map.entities) do
-		if v.team == entity.team then
-			local res = func(v, ...)
-			if res then
-				count = count + 1
-			end
-			if type(res) == "number" then
-				sum = sum + res
-			end
-		end
-	end
-	return count, sum
 end
 
 local function move(entity, waypoint)
@@ -111,36 +102,50 @@ local function heal(entity, heal)
 	return heal
 end
 
-local function damage(entity, target, damage)
-	return for_area(entity, target, function(entity, source, damage)
-		if entity.team == source.team then
+local function damage(entity, damage)
+	if entity.status.fly and damage.type == "ground" then
+		return nil
+	end
+	if not entity.status.fly and damage.type == "air" then
+		return nil
+	end
+
+	damage = util.copy_table(damage)
+	for i = 1, #entity.hook, 1 do
+		damage = entity.hook[i]:func(entity, damage)
+		if not damage then
 			return nil
 		end
-		damage = util.copy_table(damage)
-		for i = 1, #entity.damage_hook, 1 do
-			damage = entity.damage_hook[i]:func(entity, source, damage)
-			if not damage then
-				return 0
-			end
-		end
-		local val = damage_to_hp(entity, damage)
+	end
 
-		if damage.element == "mental" then
-			entity.sanity = math.max(0, math.floor(entity.sanity - val))
-		else
-			entity.health = math.floor(entity.health - val)
-		end
-		if not entity:alive() then
-			source:killed(entity)
-			entity.map:remove(entity)
-		end
-		return val
-	end, entity, damage)
+	local resist = entity.resistance[damage.element] or 0
+	local val = damage.damage * (1 - resist)
+
+	if damage.element == "mental" then
+		entity.sanity = math.max(0, math.floor(entity.sanity - val))
+	else
+		entity.health = math.floor(entity.health - val)
+	end
+	local killed = false
+	if not entity:alive() then
+		entity.map:remove(entity)
+		killed = true
+	end
+	return val, killed
 end
 
-local function skill_update(skill, tick)
-	if tick then
-		skill.remain = math.max(skill.remain - 1, 0)
+local function tick(entity)
+	if not entity.status.down then
+		entity.energy = math.floor(math.min(entity.energy_cap, entity.energy + entity.generator))
+		for k, v in pairs(entity.inventory) do
+			v:tick()
+		end
+		for k, v in pairs(entity.skills) do
+			v:update(true)
+		end
+		entity.active = true
+	else
+		entity.active = false
 	end
 end
 
@@ -173,11 +178,9 @@ local function action(entity, skill, ...)
 	return res
 end
 
-local function new_entity(name, team, pos, template)
+local function new_entity(name, template)
 	return {
 		name = name,
-		pos = pos,
-		team = team,
 		template = template,
 		creature = false,
 		health = template.health_cap,
@@ -195,8 +198,8 @@ local function new_entity(name, team, pos, template)
 	}
 end
 
-local function new_character(name, team, pos, template, skills)
-	local obj = util.merge_table(new_entity(name, team, pos, template), {
+local function new_character(name, template, skills)
+	local obj = util.merge_table(new_entity(name, template), {
 		creature = true,
 		status = {},
 		energy = template.generator,
@@ -204,6 +207,7 @@ local function new_character(name, team, pos, template, skills)
 		inventory = {},
 		skills = {},
 		active = true,
+		tick = tick,
 		action = action,
 	})
 
@@ -218,17 +222,14 @@ end
 
 return {
 	priority = priority,
-	damage_to_hp = damage_to_hp,
-	hp_to_damage = hp_to_damage,
-	add_buff = add_buff,
-	add_damage_hook = add_damage_hook,
-	for_area = for_area,
-	for_team = for_team,
+	common_tick = common_tick,
+	skill_update = skill_update,
+	energy_shield = energy_shield,
+	hook = hook,
 	move = move,
 	teleport = teleport,
 	heal = heal,
 	damage = damage,
-	skill_update = skill_update,
 	new_entity = new_entity,
 	new_character = new_character,
 }

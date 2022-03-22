@@ -1,12 +1,12 @@
 local core = require("core")
 
 local template = {
-	health_cap = 200,
+	health_cap = 1000,
 	resistance = {
 
 	},
 }
 
-return function(team, pos)
-	return core.new_entity("target", team, pos, template)
+return function()
+	return core.new_entity("target", template)
 end
