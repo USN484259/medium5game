@@ -135,7 +135,7 @@ local function distance(pos, tar, limit)
 		return 0
 	end
 
-	local dis = 1
+	local dis = 0
 	local res = { pos }
 	local queue = { pos }
 
@@ -161,6 +161,9 @@ local function distance(pos, tar, limit)
 end
 
 return {
+	print = function(p)
+		return '(' .. p[1] .. ',' .. p[2] .. ')'
+	end,
 	cmp = cmp,
 	adjacent = adjacent,
 	direction = direction,

@@ -4,6 +4,11 @@ local hexagon = require("hexagon")
 local buff = require("buff")
 local fx = require("effect")
 
+local function new_team(self, ...)
+	table.insert(self.teams, table.pack(...))
+	return #self.teams
+end
+
 local function get(self, pos)
 	for k, e in pairs(self.entities) do
 		if hexagon.cmp(e.pos, pos) then
@@ -36,7 +41,7 @@ end
 
 local function damage(self, team, area, damage, ...)
 	local count = 0
-	local killed = 0
+	local killed = {}
 	for k, p in pairs(area) do
 		local e = self:get(p)
 		if e and e.team ~= team then
@@ -48,7 +53,7 @@ local function damage(self, team, area, damage, ...)
 				end
 			end
 			if k then
-				killed = killed + 1
+				table.insert(killed, k)
 			end
 		end
 	end
@@ -68,7 +73,7 @@ local function effect(self, team, area, name, ...)
 	end
 end
 
-local function spawn(self, name, team, pos)
+local function spawn(self, team, name, pos)
 	if self:get(pos) then
 		return nil
 	end
@@ -98,7 +103,7 @@ local function remove(self, obj)
 end
 
 local function contact(self, obj)
-	local step = obj.step or 1
+	local step = obj.step or 0x10
 	while step > 0 do
 		local orig_pos = obj.pos
 		local list = {}
@@ -141,7 +146,7 @@ local function tick_effect(self, team)
 	self.effects = queue
 end
 
-local function tick(self, tid, func, ...)
+local function tick(self, tid)
 	tick_effect(self, tid)
 
 	local team = self:get_team(tid)
@@ -185,8 +190,11 @@ local function tick(self, tid, func, ...)
 		end
 	end
 
-	if func then
-		func(self, ...)
+	if tid > 0 then
+		local ctrl = self.teams[tid]
+		if type(ctrl[1]) == "function" then
+			ctrl[1](self, tid, table.unpack(ctrl, 2))
+		end
 	end
 
 	team = self:get_team(tid)
@@ -199,12 +207,22 @@ local function tick(self, tid, func, ...)
 	end
 end
 
+local function run(self)
+	while true do
+		tick(self, 0)
+		for i = 1, #self.teams, 1 do
+			tick(self, i)
+		end
+	end
+end
+
 return function(scale)
 	return {
 		scale = scale,
+		teams = {},
 		entities = {},
 		effects = {},
-
+		new_team = new_team,
 		get = get,
 		get_area = get_area,
 		get_team = get_team,
@@ -213,7 +231,7 @@ return function(scale)
 		contact = contact,
 		spawn = spawn,
 		remove = remove,
-		tick = tick,
+		run = run,
 	}
 end
 

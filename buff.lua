@@ -52,14 +52,27 @@ local function burn(duration, damage)
 		duration = duration,
 		damage = damage or 40,
 		tick = function(self)
+			local entity = self.owner
 			if not core.common_tick(self) then
 				return false
 			end
-			core.damage(self.owner, {
+			core.damage(entity, {
 				damage = self.damage,
 				element = "fire",
 			})
+			entity.status.burn = true
 			return true
+		end,
+	}
+end
+
+local function cooling()
+	return {
+		name = "cooling",
+		priority = core.priority.stat,
+		tick = function(self)
+			self.owner.status.cooling = true
+			return false
 		end,
 	}
 end
@@ -87,6 +100,7 @@ local list = {
 	down = down,
 	block = block,
 	burn = burn,
+	cooling = cooling,
 	turbulence = turbulence,
 }
 

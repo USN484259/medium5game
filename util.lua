@@ -1,3 +1,23 @@
+
+-- FIXME currently only support linux-like /dev/urandom
+local rng_handle = nil
+local function random(len)
+	if not rng_handle then
+		rng_handle = io.open("/dev/urandom")
+		if not rng_handle then
+			error("cannot open /dev/urandom")
+		end
+	end
+	if len then
+		local str = rng_handle:read(len)
+		return table.pack(string.byte(str, 1, len))
+	else
+		local str = rng_handle:read(1)
+		return string.byte(str)
+	end
+
+end
+
 local function find(table, val, cmp)
 	for k, v in pairs(table) do
 		if (cmp and cmp(v, val)) or (v == val) then
@@ -50,6 +70,7 @@ local function merge_table(tar, src)
 end
 
 return {
+	random = random,
 	find = find,
 	dump_table = dump_table,
 	copy_table = copy_table,

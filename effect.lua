@@ -61,6 +61,8 @@ local function storm(center, range, duration)
 		apply = function(self, entity)
 			if entity.team ~= self.team then
 				buff(entity, "turbulence", 200)
+			else
+				buff(entity, "cooling")
 			end
 
 			return true

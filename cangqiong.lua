@@ -5,9 +5,8 @@ local buff = require("buff")
 
 local template = {
 	health_cap = 1000,
-	speed = 5,
-	dodge = 0.6,
-	accuracy = 0.9,
+	speed = 8,
+	accuracy = 9,
 	power = 100,
 	sight = 4,
 	energy_cap = 1000,
@@ -26,11 +25,10 @@ local template = {
 
 	quiver = {
 		name = "air",
-		cooldown = 0,
 
 		area = function(entity, area)
 			entity.map:damage(entity.team, area, {
-				damage = 100,
+				damage = 200,
 				element = "physical",
 			})
 		end,
@@ -65,7 +63,7 @@ local skill_move = {
 	cooldown = 0,
 	remain = 0,
 	enable = true,
-	cost = 15,
+	cost = 10,
 	step = 3,
 
 	update = function(self, tick)
@@ -91,7 +89,7 @@ local skill_move = {
 local skill_attack = {
 	name = "attack",
 	type = "target",
-	cooldown = 0,
+	cooldown = 1,
 	remain = 0,
 	enable = true,
 	cost = 40,
@@ -100,7 +98,6 @@ local skill_attack = {
 		local entity = self.owner
 		local arrow = entity.inventory[1]:get()
 
-		self.cooldown = arrow.cooldown or 1
 		self.cost = 40 + (arrow.cost or 0)
 		self.range = arrow.range
 		self.attach = arrow.single
@@ -113,13 +110,12 @@ local skill_attack = {
 		if self.range and not hexagon.distance(entity.pos, target, self.range) then
 			return false
 		end
-		entity.map:damage(entity.team, { target }, {
+		local res = entity.map:damage(entity.team, { target }, {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
 		})
-
-		if self.attach then
+		if res > 0 and self.attach then
 			self.attach(entity, target)
 		end
 
@@ -176,7 +172,7 @@ local skill_wind_control = {
 	cooldown = 0,
 	remain = 0,
 	enable = true,
-	cost = 120,
+	cost = 80,
 	noblock = true,
 	range = 4,
 	length = 3,
