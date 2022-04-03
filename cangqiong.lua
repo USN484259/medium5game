@@ -53,6 +53,8 @@ local buff_storm = {
 		})
 
 		entity.status.ultimate = true
+		entity.speed = math.floor(entity.speed / 2)
+
 		return true
 	end,
 }

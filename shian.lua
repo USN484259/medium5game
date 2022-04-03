@@ -65,6 +65,10 @@ local buff_shield = {
 	name = "shield",
 	priority = core.priority.shield,
 	tick = function(self)
+		local entity = self.owner
+		if entity.inventory[1]:get() == "shield" and not entity.status.ultimate then
+			entity.speed = math.floor(entity.speed / 2)
+		end
 		return true
 	end,
 	defer = function(self)
@@ -125,6 +129,7 @@ local buff_final_guard = {
 		end
 		entity.status.ultimate = true
 		entity.generator = 0
+		entity.speed = 0
 
 		return true
 	end,
@@ -185,7 +190,7 @@ local skill_attack = {
 					element = "physical",
 					accuracy = entity.accuracy,
 					type = "ground",
-				}, "down", 1)
+				}, buff, "down", 1)
 
 				local splash = hexagon.range(target, 1)
 
@@ -206,7 +211,7 @@ local skill_attack = {
 					damage = entity.power / 5,
 					element = "earth",
 					type = "ground",
-				}, "block", 1)
+				}, buff, "block", 1)
 
 				return true
 			end
@@ -260,7 +265,7 @@ local skill_cannon = {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
-		}, "down", 1)
+		}, buff, "down", 1)
 		if res > 0 then
 			-- extra damage to flying target
 			entity.map:damage(entity.team, { target }, {

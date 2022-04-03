@@ -78,10 +78,35 @@ local function storm(center, range, duration)
 	}
 end
 
+local function blackhole(duration, strength)
+	return {
+		name = "blackhole",
+		priority = 1,
+		duration = duration,
+		strength = strength,
+		apply = function(self, entity)
+			if entity.team ~= self.team then
+				buff(entity, "blackhole", self.strength)
+				buff(entity, "block", 1)
+			end
+
+			return true
+		end,
+		contact = function(self, obj)
+			if obj.team ~= self.team then
+				return nil
+			else
+				return obj
+			end
+		end,
+	}
+end
+
 local list = {
 	flame = flame,
 	wind = wind,
 	storm = storm,
+	blackhole = blackhole,
 }
 
 return function(name, ...)

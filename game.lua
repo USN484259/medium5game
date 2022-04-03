@@ -2,6 +2,7 @@
 
 local util = require("util")
 local core = require("core")
+local hexagon = require("hexagon")
 
 local function show_map(map, tid)
 	print("--------map--------")
@@ -36,10 +37,11 @@ local function action_menu(entity)
 	print(str)
 
 	for k, item in pairs(entity.inventory) do
-		local str = item.name .. '\t'
+		local str = item.name
 		if item.remain then
-			str = str .. item.remain .. '/' .. item.cooldown
+			str = str .. '\t' .. item.remain .. '/' .. item.cooldown
 		elseif item.modes then
+				str = str .. '\t'
 			for i = 1, #item.modes, 1 do
 				local m = item.modes[i]
 				if type(m) == "table" then
@@ -53,8 +55,12 @@ local function action_menu(entity)
 			end
 		else
 			for k, v in pairs(item) do
-				if k ~= "name" and type(v) ~= "function" then
-					str = str .. k .. ' ' .. v
+				if k ~= "name" then
+					if type(v) == "table" then
+						str = str .. '\t' .. k .. ' ' .. hexagon.print(v)
+					elseif type(v) ~= "function" then
+						str = str .. '\t' .. k .. ' ' .. v .. '\t'
+					end
 				end
 			end
 		end
@@ -147,6 +153,7 @@ local function main()
 	local map_scale = 8
 
 	core.log_level(true)
+	util.random_setup("lua")
 
 	local map = require("map")(map_scale)
 	local player_team = map:new_team(player_control)
@@ -154,11 +161,12 @@ local function main()
 	map:spawn(player_team, "shian", {1, 5})
 	map:spawn(player_team, "chiyu", {0, 0})
 	map:spawn(player_team, "cangqiong", {1, 0})
+	map:spawn(player_team, "stardust", {1, 4})
 
 	local enemy_team = map:new_team()
 	for n = 1, 10, 1 do
-		local d = math.random(map_scale)
-		local i = math.random(d * 6)
+		local d = util.random("uniform", 0, map_scale)
+		local i = util.random("uniform", 0, math.max(d * 6 - 1, 0))
 		map:spawn(enemy_team, "target", {d, i})
 	end
 

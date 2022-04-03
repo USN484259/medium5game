@@ -93,7 +93,7 @@ local function move(entity, waypoint)
 		local str = entity.name .. ' ' .. hexagon.print(pos)
 		pos = hexagon.direction(pos, waypoint[i])
 		str = str .. " ===> " .. hexagon.print(pos)
-		if pos[1] >= map.scale or map:get(pos) then
+		if pos[1] > map.scale or map:get(pos) then
 			log(str .. " blocked")
 			return false
 		end
@@ -106,7 +106,7 @@ end
 local function teleport(entity, target)
 	local map = entity.map
 	local str = entity.name .. ' ' .. hexagon.print(entity.pos) .. " |--> " .. hexagon.print(target)
-	if target[1] >= map.scale or map:get(target) then
+	if target[1] > map.scale or map:get(target) then
 		log(str .. " blocked")
 		return false
 	end
@@ -123,7 +123,7 @@ local function heal(entity, heal)
 end
 
 local function miss(speed, accuracy)
-	local val = util.random()
+	local val = util.random("raw")
 	log("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. val)
 	val = (val & 0x0F) ~ (val >> 4)
 	return val >= (8 + (accuracy - speed) * 2)

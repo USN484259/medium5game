@@ -1,21 +1,75 @@
+local rng_table = {
+	lua = function(seed)
+		if seed then
+			math.randomseed(seed)
+		end
+		return {
+			raw = function(self, len)
+				if not len then
+					return math.random(0, 255)
+				end
+				local list = {}
+				for i = 1, len, 1 do
+					table.insert(list, math.random(0, 255))
+				end
+				return string.char(table.unpack(list))
+			end,
+			uniform = function(self, a, b)
+				return math.random(a, b)
+			end,
+		}
+	end,
 
--- FIXME currently only support linux-like /dev/urandom
-local rng_handle = nil
-local function random(len)
-	if not rng_handle then
-		rng_handle = io.open("/dev/urandom")
+	os = function()		-- FIXME currently only support linux-like /dev/urandom
+		local rng_handle = io.open("/dev/urandom")
 		if not rng_handle then
 			error("cannot open /dev/urandom")
 		end
-	end
-	if len then
-		local str = rng_handle:read(len)
-		return table.pack(string.byte(str, 1, len))
-	else
-		local str = rng_handle:read(1)
-		return string.byte(str)
-	end
 
+		return {
+			rng_handle = rng_handle,
+			raw = function(self, len)
+				if len then
+					return self.rng_handle:read(len)
+					-- return table.pack(string.byte(str, 1, len))
+				else
+					local str = self.rng_handle:read(1)
+					return string.byte(str)
+				end
+			end,
+			uniform = function(self, a, b)
+				local list = table.pack(string.byte(self:raw(8), 1, 8))
+				local val = 0
+				for i = 1, 8, 1 do
+					val = (val << 8) | list[i]
+				end
+				return a + math.abs(val) % (b - a + 1)
+			end,
+		}
+	end
+}
+
+local rng = nil
+
+local function random_setup(source, ...)
+	local func = rng_table[source]
+	if func then
+		rng = func(...)
+	else
+		error("invalid rng source " .. source)
+	end
+end
+
+local function random(mode, ...)
+	if not rng then
+		error("rng not setup")
+	end
+	local func = rng[mode]
+	if func then
+		return func(rng, ...)
+	else
+		error("rng doesn't support mode " .. mode)
+	end
 end
 
 local function find(table, val, cmp)
@@ -70,6 +124,7 @@ local function merge_table(tar, src)
 end
 
 return {
+	random_setup = random_setup,
 	random = random,
 	find = find,
 	dump_table = dump_table,

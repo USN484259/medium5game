@@ -28,7 +28,7 @@ local template = {
 			entity.map:damage(entity.team, { target }, {
 				damage = 100,
 				element = "fire",
-			}, "burn", 2)
+			}, buff, "burn", 2)
 		end,
 
 		area = function(entity, area)
@@ -138,7 +138,7 @@ local skill_attack = {
 			ember_damage(entity, { target }, {
 				damage = entity.power / 2,
 				element = "fire",
-			}, "burn", 1)
+			}, buff, "burn", 1)
 		end
 		return true
 	end,
@@ -168,13 +168,13 @@ local skill_charge = {
 			ember_damage(entity, line, {
 				damage = entity.power,
 				element = "fire",
-			}, "burn", 1)
+			}, buff, "burn", 1)
 
 			ember_damage(entity, { line[#line - 1] }, {
 				damage = entity.power * 2,
 				element = "physical",
 				accuracy = entity.accuracy,
-			}, "down", 1)
+			}, buff, "down", 1)
 		end
 
 		return res
@@ -216,7 +216,7 @@ local skill_ignition = {
 			entity.map:damage(entity.team, area, {
 				damage = seed.power,
 				element = "fire",
-			}, "burn", 1)
+			}, buff, "burn", 1)
 			entity.map:effect(entity.team, area, "flame", 1)
 		end
 
@@ -250,7 +250,7 @@ local skill_sweep = {
 		ember_damage(entity, area, {
 			damage = entity.power,
 			element = "fire",
-		}, "burn", 1)
+		}, buff, "burn", 1)
 
 		return true
 	end,
@@ -312,12 +312,12 @@ local skill_phoenix = {
 			ember_damage(entity, main, {
 				damage = entity.power * 2,
 				element = "fire",
-			}, "burn", 2)
+			}, buff, "burn", 2)
 
 			ember_damage(entity, sides, {
 				damage = entity.power,
 				element = "fire",
-			}, "burn", 2)
+			}, buff, "burn", 2)
 
 			ember_damage(entity, { main[#main - 1] }, {
 				damage = entity.power * 2,
@@ -327,7 +327,7 @@ local skill_phoenix = {
 			ember_damage(entity, { main[#main - 1] }, {
 				damage = entity.power * 2,
 				element = "physical",
-			}, "down", 2)
+			}, buff, "down", 2)
 
 			local area = util.append_table(main, sides)
 			entity.map:effect(entity.team, area, "flame", 2)

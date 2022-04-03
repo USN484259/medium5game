@@ -25,6 +25,7 @@ local function down(duration)
 				self.owner.status.down = true
 				self.owner.status.fly = nil
 			end
+			self.owner.speed = 0
 			return true
 		end,
 	}
@@ -40,6 +41,9 @@ local function block(duration)
 				return false
 			end
 			self.owner.status.block = true
+			if self.owner.speed then
+				self.owner.speed = math.floor(self.owner.speed / 2)
+			end
 			return true
 		end,
 	}
@@ -94,6 +98,23 @@ local function turbulence(damage)
 	}
 end
 
+local function blackhole(strength)
+	return {
+		name = "blackhole",
+		priority = core.priority.damage,
+		strength = strength,
+
+		tick = function(self)
+			local entity = self.owner
+			local cap = entity.health_cap
+			core.damage(entity, {
+				damage = math.max(self.strength * 5, cap * self.strength / 100),
+				element = "physical",
+			})
+			return false
+		end,
+	}
+end
 
 local list = {
 	fly = fly,
@@ -102,6 +123,7 @@ local list = {
 	burn = burn,
 	cooling = cooling,
 	turbulence = turbulence,
+	blackhole = blackhole,
 }
 
 return function(entity, name, ...)
@@ -114,9 +136,15 @@ return function(entity, name, ...)
 	if not b then
 		return false
 	end
+	if b.unique then
+		for k, v in pairs(entity.buff) do
+			if v.name == b.name then
+				return false
+			end
+		end
+	end
 
 	b.owner = entity
-
 	table.insert(entity.buff, b)
 	return true
 end

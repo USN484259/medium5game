@@ -9,13 +9,17 @@ local function new_team(self, ...)
 	return #self.teams
 end
 
-local function get(self, pos)
-	for k, e in pairs(self.entities) do
-		if hexagon.cmp(e.pos, pos) then
-			return e
+local function get(self, pos, layer)
+	layer = layer or "entities"
+	local func = self.layers[layer] or function(layer, pos)
+		for k, e in pairs(layer) do
+			if hexagon.cmp(e.pos, pos) then
+				return e
+			end
 		end
 	end
-	return nil
+
+	return func(self[layer], pos)
 end
 
 local function get_area(self, area)
@@ -39,17 +43,17 @@ local function get_team(self, team)
 	return list
 end
 
-local function damage(self, team, area, damage, ...)
+local function damage(self, team, area, damage, func, ...)
 	local count = 0
 	local killed = {}
 	for k, p in pairs(area) do
 		local e = self:get(p)
-		if e and e.team ~= team then
+		if e and (team == 0 or e.team ~= team) then
 			local d, k = core.damage(e, damage)
 			if d then
 				count = count + 1
-				if select("#", ...) > 0 then
-					buff(e, ...)
+				if func then
+					func(e, ...)
 				end
 			end
 			if k then
@@ -198,12 +202,20 @@ local function tick(self, tid)
 	end
 
 	team = self:get_team(tid)
+	queue = {}
 	for k, e in pairs(team) do
 		for k, b in pairs(e.buff) do
 			if b.defer then
-				b:defer()
+				table.insert(queue, b)
 			end
 		end
+	end
+	table.sort(queue, function(a, b)
+		return a.priority < b.priority
+	end)
+
+	for i = 1, #queue, 1 do
+		queue[i]:defer()
 	end
 end
 
@@ -217,8 +229,9 @@ local function run(self)
 end
 
 return function(scale)
-	return {
+	local map = {
 		scale = scale,
+		layers = {},
 		teams = {},
 		entities = {},
 		effects = {},
@@ -233,6 +246,10 @@ return function(scale)
 		remove = remove,
 		run = run,
 	}
+
+	require("star_energy")(map)
+
+	return map
 end
 
 
