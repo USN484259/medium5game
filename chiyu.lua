@@ -21,6 +21,9 @@ local template = {
 		star = 0,
 		mental = 0.4,
 	},
+	immune = {
+		burn = true,
+	},
 	quiver = {
 		name = "fire",
 		cost = 30,

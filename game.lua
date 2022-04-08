@@ -15,7 +15,7 @@ local function show_map(map, tid)
 		else
 			str = "-\t"
 		end
-		str = str .. "(" .. e.pos[1] .. "," .. e.pos[2] .. ")\t" .. e.name .. "\tHP " .. e.health .. '/' .. e.health_cap
+		str = str .. hexagon.print(e.pos) .. "\t" .. e.name .. "\tHP " .. e.health .. '/' .. e.health_cap
 		if e.team == tid and e.energy then
 			str = str .. "\tMP " .. e.energy .. '/' .. e.energy_cap
 		end
@@ -28,9 +28,25 @@ local function show_map(map, tid)
 	return team
 end
 
+local function show_layer(map, layer)
+	print("--------" .. layer .. "--------")
+	for k, v in pairs(map[layer]) do
+		local str = hexagon.print(v.pos)
+		for k, e in pairs(v) do
+			if k ~= "pos" and type(e) ~= "table" and type(e) ~= "function" then
+				str = str .. '\t' .. k .. ' ' .. e
+			end
+		end
+		print(str)
+	end
+end
+
 local function action_menu(entity)
+	if entity.layer then
+		show_layer(entity.map, entity.layer)
+	end
 	print("--------character--------")
-	local str = entity.name .. " (" .. entity.pos[1] .. ',' .. entity.pos[2] .. ")\tHP " .. entity.health .. '/' .. entity.health_cap .. "\tMP " .. entity.energy .. '/' .. entity.energy_cap .. "\tsanity " .. entity.sanity
+	local str = entity.name .. " " .. hexagon.print(entity.pos) .. "\tHP " .. entity.health .. '/' .. entity.health_cap .. "\tMP " .. entity.energy .. '/' .. entity.energy_cap .. "\tsanity " .. entity.sanity
 	for k, v in pairs(entity.status) do
 		str = str .. '\t' .. k
 	end

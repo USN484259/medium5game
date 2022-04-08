@@ -111,6 +111,19 @@ local function append_table(tar, src)
 	return tar
 end
 
+local function unique_insert(tab, val, cmp)
+	cmp = cmp or function(a, b)
+		return a == b
+	end
+	for k, v in pairs(tab) do
+		if cmp(v, val) then
+			return
+		end
+	end
+
+	return table.insert(tab, val)
+end
+
 local function merge_table(tar, src)
 	for k,v in pairs(src) do
 		if type(v) == "table" and type(tar[k]) == "table" then
@@ -130,5 +143,6 @@ return {
 	dump_table = dump_table,
 	copy_table = copy_table,
 	append_table = append_table,
+	unique_insert = unique_insert,
 	merge_table = merge_table,
 }

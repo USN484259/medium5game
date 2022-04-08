@@ -9,17 +9,17 @@ local function new_team(self, ...)
 	return #self.teams
 end
 
-local function get(self, pos, layer)
+local function get(self, pos, layer, ...)
 	layer = layer or "entities"
-	local func = self.layers[layer] or function(layer, pos)
-		for k, e in pairs(layer) do
+	local func = self.layers[layer] or function(map, pos)
+		for k, e in pairs(map.entities) do
 			if hexagon.cmp(e.pos, pos) then
 				return e
 			end
 		end
 	end
 
-	return func(self[layer], pos)
+	return func(self, pos, ...)
 end
 
 local function get_area(self, area)

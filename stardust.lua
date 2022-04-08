@@ -70,6 +70,7 @@ local template = {
 		end,
 
 	},
+	layer = "star_energy",
 }
 
 local buff_star_energy = {
@@ -84,8 +85,11 @@ local buff_star_energy = {
 	end,
 	defer = function(self)
 		local entity = self.owner
-		local energy = entity.energy
+		if entity.status.down then
+			return
+		end
 
+		local energy = entity.energy
 		for i = 1, #entity.inventory, 1 do
 			local item = entity.inventory[i]
 			if not item.active then
@@ -356,7 +360,7 @@ local skill_blackhole = {
 		if not hexagon.distance(entity.pos, target, self.range) then
 			return false
 		end
-		
+
 		local area = hexagon.range(target, 1)
 		entity.map:effect(entity.team, area, "blackhole", blackhole_duration, 4)
 
@@ -399,7 +403,7 @@ local skill_lazer = {
 local skill_starfall = {
 	name = "starfall",
 	type = "target",
-	cooldown = 40,
+	cooldown = 20,
 	remain = 0,
 	enable = true,
 	cost = 0,
@@ -428,12 +432,7 @@ local skill_starfall = {
 			end,
 			defer = function(self)
 				local entity = self.owner
-				local val = entity.map:get(self.target, "star_energy")
-				local area = hexagon.range(self.target, 2)
-				entity.map:damage(0, area, {
-					damage = 16 * val,
-					element = "star",
-				}, overcharge, 8 * val)
+				entity.map:get(target, "star_energy", "detonate", entity.power * 4)
 			end,
 		})
 

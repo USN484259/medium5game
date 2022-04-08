@@ -136,15 +136,18 @@ return function(entity, name, ...)
 	if not b then
 		return false
 	end
-	if b.unique then
-		for k, v in pairs(entity.buff) do
-			if v.name == b.name then
-				return false
-			end
-		end
+	b.owner = entity
+
+	if entity.immune and entity.immune[b.name] then
+		return false
 	end
 
-	b.owner = entity
-	table.insert(entity.buff, b)
+	if b.unique then
+		util.unique_insert(entity.buff, b, function(a, b)
+			return a.name == b.name
+		end)
+	else
+		table.insert(entity.buff, b)
+	end
 	return true
 end
