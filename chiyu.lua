@@ -83,7 +83,10 @@ local buff_curse = {
 local function ember_damage(entity, ...)
 	local count, killed = entity.map:damage(entity.team, ...)
 	for k, v in pairs(killed) do
-		core.heal(entity, math.min(v // 10, entity.health_cap // 20))
+		core.heal(entity, {
+			max_cap = v // 10,
+			ratio = 1 / 20,
+		})
 	end
 	local ember = entity.inventory[1]
 	ember.temperature = ember.temperature + count * 3 + #killed * 8

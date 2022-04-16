@@ -126,7 +126,7 @@ local list = {
 	blackhole = blackhole,
 }
 
-return function(entity, name, ...)
+local function buff_insert(entity, name, ...)
 	local b
 	if type(name) == "string" then
 		b = list[name](...)
@@ -151,3 +151,49 @@ return function(entity, name, ...)
 	end
 	return true
 end
+
+local function buff_tick(team)
+	local queue = {}
+	for k, e in pairs(team) do
+		util.append_table(queue, e.buff)
+		e.buff = {}
+	end
+
+	table.sort(queue, function(a, b)
+		return a.priority < b.priority
+	end)
+
+	for i = 1, #queue, 1 do
+		local b = queue[i]
+		if b:tick() then
+			table.insert(b.owner.buff, b)
+		end
+	end
+end
+
+local function buff_defer(team)
+	local queue = {}
+	for k, e in pairs(team) do
+		for k, b in pairs(e.buff) do
+			if b.defer then
+				table.insert(queue, b)
+			end
+		end
+	end
+	table.sort(queue, function(a, b)
+		return a.priority < b.priority
+	end)
+
+	for i = 1, #queue, 1 do
+		queue[i]:defer()
+	end
+end
+
+return {
+	insert = buff_insert,
+	get = buff_get,
+	remove = buff_remove,
+
+	tick = buff_tick,
+	defer = buff_defer,
+}

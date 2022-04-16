@@ -77,6 +77,34 @@ local function energy_shield(damage, energy, ratio)
 	end
 end
 
+local function multi_target(skill, target_list, unique)
+	if not target_list or #target_list < 1 then
+		return false
+	end
+	for i = 1, #target_list, 1 do
+		local tar = target_list[i]
+		if type(skill.range) == "number" then
+			if not hexagon.distance(skill.owner.pos, tar, skill.range) then
+				return false
+			end
+		elseif type(skill.range) == "table" then
+			local dis = hexagon.distance(skill.owner.pos, tar, skill.range[2])
+			if not dis or dis < skill.range[1] then
+				return false
+			end
+		end
+		if unique then
+			for j = 1, i - 1, 1 do
+				if hexagon.cmp(tar, target_list[j]) then
+					return false
+				end
+			end
+		end
+	end
+
+	return true
+end
+
 local function hook(entity, hook)
 	log(entity.name .. " add hook " .. hook.name)
 	table.insert(entity.hook, util.copy_table(hook))
@@ -116,10 +144,17 @@ local function teleport(entity, target)
 end
 
 local function heal(entity, heal)
-	heal = math.max(0, math.min(heal, entity.health_cap - entity.health))
-	log(entity.name .. " gain " .. heal .. " HP")
-	entity.health = math.floor(entity.health + heal)
-	return heal
+	local val = heal.heal or heal.ratio * entity.health_cap
+	val = math.floor(math.max(math.min(val, heal.max_cap), heal.min_cap))
+
+	if not heal.overcap then
+		local req = math.max(0, entity.health_cap - entity.health)
+		val = math.max(req, val)
+	end
+
+	log(entity.name .. " gain " .. val .. " HP")
+	entity.health = math.floor(entity.health + val)
+	return val
 end
 
 local function miss(speed, accuracy)
@@ -267,6 +302,7 @@ return {
 	common_tick = common_tick,
 	skill_update = skill_update,
 	energy_shield = energy_shield,
+	multi_target = multi_target,
 	hook = hook,
 	move = move,
 	teleport = teleport,

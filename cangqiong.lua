@@ -25,6 +25,7 @@ local template = {
 
 	quiver = {
 		name = "air",
+		shots = 2,
 
 		area = function(entity, area)
 			entity.map:damage(entity.team, area, {
@@ -90,7 +91,8 @@ local skill_move = {
 
 local skill_attack = {
 	name = "attack",
-	type = "target",
+	type = "multitarget",
+	shots = 2,
 	cooldown = 1,
 	remain = 0,
 	enable = true,
@@ -100,19 +102,20 @@ local skill_attack = {
 		local entity = self.owner
 		local arrow = entity.inventory[1]:get()
 
+		self.shots = arrow.shots or 1
 		self.cost = 40 + (arrow.cost or 0)
 		self.range = arrow.range
 		self.attach = arrow.single
 
 		core.skill_update(self, tick)
 	end,
-	use = function(self, target)
+	use = function(self, target_list)
 		local entity = self.owner
 
-		if self.range and not hexagon.distance(entity.pos, target, self.range) then
+		if not core.multi_target(self, target_list) then
 			return false
 		end
-		local res = entity.map:damage(entity.team, { target }, {
+		local res = entity.map:damage(entity.team, target_list, {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,

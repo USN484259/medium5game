@@ -64,6 +64,18 @@ local function damage(self, team, area, damage, func, ...)
 	return count, killed
 end
 
+local function heal(self, team, area, heal, func, ...)
+	for k, p in pairs(area) do
+		local e = self:get(p)
+		if e and e.team == team then
+			core.heal(e, heal)
+			if func then
+				func(e, ...)
+			end
+		end
+	end
+end
+
 local function effect(self, team, area, name, ...)
 	for k, p in pairs(area) do
 		local f = fx(name, ...)
@@ -154,7 +166,6 @@ local function tick(self, tid)
 	tick_effect(self, tid)
 
 	local team = self:get_team(tid)
-	local queue = {}
 	for k, e in pairs(team) do
 		-- apply effects
 		for k, f in pairs(self.effects) do
@@ -163,9 +174,6 @@ local function tick(self, tid)
 			end
 		end
 
-		util.append_table(queue, e.buff)
-
-		e.buff = {}
 		e.status = {}
 		e.hook = {}
 
@@ -174,17 +182,7 @@ local function tick(self, tid)
 		end
 	end
 
-	table.sort(queue, function(a, b)
-		return a.priority < b.priority
-	end)
-
-	for i = 1, #queue, 1 do
-		local b = queue[i]
-
-		if b:tick() then
-			table.insert(b.owner.buff, b)
-		end
-	end
+	buff.tick(team)
 
 	for k, e in pairs(team) do
 		if not e:alive() then
@@ -201,22 +199,7 @@ local function tick(self, tid)
 		end
 	end
 
-	team = self:get_team(tid)
-	queue = {}
-	for k, e in pairs(team) do
-		for k, b in pairs(e.buff) do
-			if b.defer then
-				table.insert(queue, b)
-			end
-		end
-	end
-	table.sort(queue, function(a, b)
-		return a.priority < b.priority
-	end)
-
-	for i = 1, #queue, 1 do
-		queue[i]:defer()
-	end
+	buff.defer(self:get_team(tid))
 end
 
 local function run(self)
@@ -240,6 +223,7 @@ return function(scale)
 		get_area = get_area,
 		get_team = get_team,
 		damage = damage,
+		heal = heal,
 		effect = effect,
 		contact = contact,
 		spawn = spawn,

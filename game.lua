@@ -132,6 +132,13 @@ local function action_menu(entity)
 		res = entity:action(sk, args)
 	elseif sk.type == "vector" then
 		res = entity:action(sk, { args[1], args[2] }, args[3])
+	elseif sk.type == "multitarget" then
+		local list = {}
+		for i = 1, #args, 2 do
+			table.insert(list, {args[i], args[i + 1]})
+		end
+
+		res = entity.action(sk, list)
 	else
 		res = entity:action(sk, table.unpack(args))
 	end
@@ -178,6 +185,7 @@ local function main()
 	map:spawn(player_team, "chiyu", {0, 0})
 	map:spawn(player_team, "cangqiong", {1, 0})
 	map:spawn(player_team, "stardust", {1, 4})
+	map:spawn(player_team, "haiyi", {1, 1})
 
 	local enemy_team = map:new_team()
 	for n = 1, 10, 1 do
