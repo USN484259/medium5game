@@ -9,17 +9,16 @@ local function new_team(self, ...)
 	return #self.teams
 end
 
-local function get(self, pos, layer, ...)
-	layer = layer or "entities"
-	local func = self.layers[layer] or function(map, pos)
-		for k, e in pairs(map.entities) do
-			if hexagon.cmp(e.pos, pos) then
-				return e
-			end
+local function layer(self, layer, ...)
+	return self.layers[layer]:func(...)
+end
+
+local function get(self, pos)
+	for k, e in pairs(self.entities) do
+		if hexagon.cmp(pos, e.pos) then
+			return e
 		end
 	end
-
-	return func(self, pos, ...)
 end
 
 local function get_area(self, area)
@@ -211,7 +210,7 @@ local function run(self)
 	end
 end
 
-return function(scale)
+return function(scale, layer_list)
 	local map = {
 		scale = scale,
 		layers = {},
@@ -219,6 +218,7 @@ return function(scale)
 		entities = {},
 		effects = {},
 		new_team = new_team,
+		layer = layer,
 		get = get,
 		get_area = get_area,
 		get_team = get_team,
@@ -231,7 +231,10 @@ return function(scale)
 		run = run,
 	}
 
-	require("star_energy")(map)
+	for i = 1, #layer_list, 1 do
+		local l = layer_list[i]
+		map.layers[l] = require(l)(map)
+	end
 
 	return map
 end

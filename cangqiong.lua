@@ -245,7 +245,7 @@ local skill_storm = {
 
 		entity.status.ultimate = true
 		butterfly.remain = butterfly.cooldown
-		buff(entity, buff_storm)
+		buff.insert(entity, buff_storm)
 
 		return true
 	end,
@@ -300,7 +300,7 @@ return function()
 		tick = core.common_tick,
 	})
 
-	buff(cangqiong, "fly")
+	buff.insert(cangqiong, "fly")
 
 	return cangqiong
 end

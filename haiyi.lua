@@ -4,14 +4,12 @@ local core = require("core")
 local buff = require("buff")
 
 local function bubble_trigger(entity, buff_name, ...)
-	local b = buff.get(entity, "bubble")
+	local b = buff.remove(entity, "bubble")
 	if b then
 		core.damage(entity, {
 			damage = b.power,
 			element = "physical",
 		})
-
-		buff.remove(entity, b)
 	end
 
 	if buff_name then
@@ -59,10 +57,90 @@ local template = {
 			entity.map:heal(entity.team, area, {
 				ratio = 0.2,
 				max_cap = 100,
-			}, buff, "bubble", entity.team, 2)
+			}, buff.insert, "bubble", entity.team, 2)
 		end,
 	},
+	layer = "waters",
 }
+
+local swim_depth = 40
+
+local function in_water(entity)
+	local water = entity.map:layer("waters", entity.pos)
+	return water and water > swim_depth
+end
+
+local function check_water(skill)
+	local entity = skill.owner
+	local req = skill.water_cost
+	local stored_water = entity.inventory[2].water
+	local ground_water = 0
+
+	local area = hexagon.range(entity.pos, 1)
+	for k, p in pairs(area) do
+		ground_water = ground_water + (entity.map:layer("waters", p) or 0)
+	end
+	return stored_water + ground_water >= req
+end
+
+local function consume_water(skill)
+	local entity = skill.owner
+	local req = skill.water_cost
+	local gound_water = true
+
+	error "REVIEW"
+
+	while req > 0 do
+		if not ground_water then
+			local jellyfish = entity.inventory[2]
+			jellyfish.water = math.max(0, jellyfish.water - req)
+			break
+		end
+
+		ground_water = false
+		local count = 0
+		local ring = hexagon.adjacent(entity.pos, 1)
+		for k, p in pairs(ring) do
+			local val = entity.map:layer("waters", p)
+			if val and val > 0 then
+				count = count + 1
+			end
+		end
+
+		local unit
+		local val = entity.map:layer("waters", entity.pos)
+		if val and val > 0 then
+			unit = math.ceil(req / (count + 3))
+			req = req - entity.map:layer("waters", entity.pos, math.min(req, 3 * unit))
+			ground_water = true
+		else
+			unit = math.ceil(req / count)
+		end
+
+		for k, p in pairs(ring) do
+			if req <= 0 then
+				break
+			end
+			req = req - entity.map:layer("waters", p, unit)
+			ground_water = true
+		end
+	end
+end
+
+local function water_area(entity, range, threshold, shore)
+	threshold = threshold or 0
+	return hexagon.connected(entity.pos, range, function(a, b)
+		local w_a = entity.map:layer("waters", a)
+		if w_a and w_a >= threshold then
+			if shore then
+				return true
+			end
+
+			local w_b = entity.map:layer("waters", b)
+			return w_b and w_b >= threshold
+		end
+	end)
+end
 
 local skill_move = {
 	name = "move",
@@ -76,12 +154,12 @@ local skill_move = {
 	update = function(self, tick)
 		local entity = self.owner
 		if in_water(entity) then
-			self.type = "target",
-			self.cost = 10,
-			self.range = 8,
+			self.type = "target"
+			self.cost = 10
+			self.step = 8
 			self.use = function(self, target)
 				local entity = self.owner
-				local area = water_area(entity.pos, self.step, true)
+				local area = water_area(entity, self.step, swim_depth, true)
 				if not util.find(area, target, hexagon.cmp) then
 					return false
 				end
@@ -142,7 +220,7 @@ local skill_attack = {
 	end,
 	use = function(self, target_list)
 		local entity = self.owner
-		
+
 		if not core.multi_target(self, target_list, true) then
 			return false
 		end
@@ -155,22 +233,31 @@ local skill_attack = {
 			accuracy = entity.accuracy,
 		}, bubble_trigger, "wet", 2)
 
+		entity.map:heal(entity.team, target_list, {
+			heal = entity.power * math.min(pwr, 2),
+		}, buff.insert, "wet", 2)
+
 		consume_water(self)
 		return true
 	end,
 }
 
-local skill_mode = {
-	name = "mode",
-	type = "toggle",
-	cooldown = 0,
+local skill_convert = {
+	name = "convert",
+	type = "effect",
+	cooldown = 1,
 	remain = 0,
 	enable = true,
-	cost = 0,
-	update = core.skill_update,
+	cost = 80,
+	update = function(self, tick)
+		local entity = self.owner
+		local jellyfish = entity.inventory[2]
+		self.enable = core.skill_update(self, tick) and (jellyfish.water < jellyfish.water_cap)
+	end,
 	use = function(self)
 		local entity = self.owner
-		entity.inventory[1]:next()
+		local jellyfish = entity.inventory[2]
+		jellyfish.water = math.min(jellyfish.water + 50, jellyfish.water_cap)
 		return true
 	end,
 }
@@ -207,7 +294,7 @@ local skill_bubble = {
 		if seed then
 			local e = entity.map:get(seed.pos)
 			if e then
-				buff(e, buff_bubble, entity.team, 2)
+				buff.insert(e, buff_bubble, entity.team, 2)
 			else
 				entity.map:spawn(entity.team, new_bubble, seed.pos)
 			end
@@ -234,12 +321,12 @@ local skill_revive = {
 			self.range = 8
 			self.use = function(self)
 				local entity = self.owner
-				local area = water_area(entity.pos, self.range)
+				local area = water_area(entity, self.range)
 
 				entity.map:heal(entity.team, area, {
 					ratio = 0.4,
 					overcap = true,
-				}, buff, "bubble", 2)
+				}, buff.insert, "bubble", 2)
 				consume_water(self)
 				return true
 			end
@@ -252,7 +339,7 @@ local skill_revive = {
 				entity.map:heal(entity.team, { tar }, {
 					ratio = 0.4,
 					overcap = true,
-				}, buff, "bubble", 2)
+				}, buff.insert, "bubble", 2)
 				consume_water(self)
 				return true
 			end
@@ -272,7 +359,7 @@ local skill_downpour = {
 	range = 4,
 
 	update = function(self, tick)
-		self.enable = core.skill_update(self. tick) and check_water(self)
+		self.enable = core.skill_update(self, tick) and check_water(self)
 	end,
 	use = function(self)
 		local entity = self.owner
@@ -280,7 +367,7 @@ local skill_downpour = {
 		entity.map:effect(entity.team, area, "downpour", downpour_duration)
 		consume_water(self)
 		entity.status.ultimate = true
-		buff(entity, buff_downpour)
+		buff.insert(entity, buff_downpour)
 
 		return true
 	end,
@@ -290,29 +377,35 @@ return function()
 	local haiyi = core.new_character("haiyi", template, {
 		skill_move,
 		skill_attack,
-		skill_mode,
+		skill_convert,
 		skill_bubble,
 		skill_revive,
 		skill_downpour,
 	})
-	table.insert(haiyi.inventory, {
-		name = "jellyfish",
-		modes = { "out", "in" },
-		water = 100,
-		water_cap = 1000,
-		select = 1,
-		tick = function(self)
 
-		end,
-		get = function(self)
-			return self.modes[self.select]
-		end,
-		next = function(self)
-			self.select = self.select % #self.modes + 1
+	table.insert(haiyi.inventory, {
+		name = "wand_of_sea",
+		tick = function(self)
 		end,
 	})
-	buff(haiyi, buff_swimming)
-	buff(haiyi, buff_healing)
+
+	table.insert(haiyi.inventory, {
+		name = "jellyfish",
+		owner = haiyi,
+		water = 0,
+		water_cap = 800,
+		tick = function(self)
+			local entity = self.owner
+			local req = math.min(self.water_cap // 8, self.water_cap - self.water)
+			local val = entity.map:layer("waters", entity.pos, req)
+			if val then
+				core.log(self.name .. " absorb " .. val .. " water")
+				self.water = self.water + val
+			end
+		end,
+	})
+	buff.insert(haiyi, buff_swimming)
+	buff.insert(haiyi, buff_healing)
 
 	return haiyi
 end

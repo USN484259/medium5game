@@ -3,35 +3,36 @@ local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
-local buff_discharge = {
-	name = "discharge",
+local buff_stars_charge = {
+	name = "stars_charge",
 	priority = core.priority.stat,
-	unique = true,
-	tick = function(self)
+
+	initial = function(self, charge)
 		local entity = self.owner
-		if (entity.stars_charge or 0) <= 100 then
-			entity.stars_charge = nil
+		local p = buff.remove(entity, "stars_charge")
+		if p then
+			local val = p.charge + charge / 2
+			core.damage(entity, {
+				damage = val,
+				element = "star",
+			})
+
 			return false
-		else
-			entity.stars_charge = entity.stars_charge - 100
-			return true
 		end
+
+		self.charge = charge
+		return charge > 0
+	end,
+
+	tick = function(self)
+		if self.charge <= 100 then
+			return false
+		end
+
+		self.charge = self.charge - 100
+		return true
 	end
 }
-
-local function overcharge(entity, charge)
-	if entity.stars_charge then
-		local val = entity.stars_charge + charge / 2
-		entity.stars_charge = 0
-		core.damage(entity, {
-			damage = val,
-			element = "star",
-		})
-	elseif charge > 0 then
-		entity.stars_charge = charge
-		buff(entity, buff_discharge)
-	end
-end
 
 local template = {
 	health_cap = 800,
@@ -59,26 +60,26 @@ local template = {
 			entity.map:damage(entity.team, { target }, {
 				damage = 100,
 				element = "star",
-			}, overcharge, 0)
+			}, buff.insert, buff_stars_charge, 0)
 		end,
 
 		area = function(entity, area)
 			entity.map:damage(entity.team, area, {
 				damage = 200,
 				element = "star",
-			}, overcharge, 200)
+			}, buff.insert, buff_stars_charge, 200)
 		end,
 
 	},
-	layer = "star_energy",
+	layer = "stars_energy",
 }
 
-local buff_star_energy = {
-	name = "star_energy",
+local buff_stars_energy = {
+	name = "stars_energy",
 	priority = core.priority.stat,
 	tick = function(self)
 		local entity = self.owner
-		local val = entity.map:get(entity.pos, "star_energy")
+		local val = entity.map:layer("stars_energy", entity.pos)
 		entity.generator = val
 
 		return true
@@ -222,7 +223,7 @@ local skill_attack = {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
-		}, overcharge, entity.power)
+		}, buff.insert, buff_stars_charge, entity.power)
 
 		for i = 1, 2, 1 do
 			local item = entity.inventory[i]
@@ -393,7 +394,7 @@ local skill_lazer = {
 		entity.map:damage(entity.team, area, {
 			damage = prism.energy / 2,
 			element = "star",
-		}, overcharge, prism.energy / 4)
+		}, buff.insert, buff_stars_charge, prism.energy / 4)
 
 		prism.energy = 0
 		return true
@@ -432,7 +433,7 @@ local skill_starfall = {
 			end,
 			defer = function(self)
 				local entity = self.owner
-				entity.map:get(target, "star_energy", "detonate", entity.power * 4)
+				entity.map:layer("stars_energy", target, entity.power * 4)
 			end,
 		})
 
@@ -500,8 +501,8 @@ return function()
 		end,
 	})
 
-	buff(stardust, buff_star_energy)
-	buff(stardust, buff_hover)
+	buff.insert(stardust, buff_stars_energy)
+	buff.insert(stardust, buff_hover)
 
 	return stardust
 end

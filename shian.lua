@@ -190,7 +190,7 @@ local skill_attack = {
 					element = "physical",
 					accuracy = entity.accuracy,
 					type = "ground",
-				}, buff, "down", 1)
+				}, buff.insert, "down", 1)
 
 				local splash = hexagon.range(target, 1)
 
@@ -211,7 +211,7 @@ local skill_attack = {
 					damage = entity.power / 5,
 					element = "earth",
 					type = "ground",
-				}, buff, "block", 1)
+				}, buff.insert, "block", 1)
 
 				return true
 			end
@@ -265,7 +265,7 @@ local skill_cannon = {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
-		}, buff, "down", 1)
+		}, buff.insert, "down", 1)
 		if res > 0 then
 			-- extra damage to flying target
 			entity.map:damage(entity.team, { target }, {
@@ -307,7 +307,7 @@ local skill_apple = {
 			element = "mental",
 			real = true,
 		})
-		buff(entity, buff_apple)
+		buff.insert(entity, buff_apple)
 		local apple = entity.inventory[2]
 		apple.remain = apple.cooldown
 
@@ -337,7 +337,7 @@ local skill_final_guard = {
 		for k, v in pairs(entity.resistance) do
 			entity.resistance[k] = math.min(0.2, v)
 		end
-		buff(entity, buff_final_guard)
+		buff.insert(entity, buff_final_guard)
 
 		return true
 	end,
@@ -374,7 +374,7 @@ return function()
 		tick = core.common_tick,
 	})
 
-	buff(shian, buff_shield)
+	buff.insert(shian, buff_shield)
 
 	shian.alive = function(self)
 		return self.health > 0 or self.status.ultimate

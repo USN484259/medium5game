@@ -30,7 +30,9 @@ end
 
 local function show_layer(map, layer)
 	print("--------" .. layer .. "--------")
-	for k, v in pairs(map[layer]) do
+	local list = map.layers[layer]:dump()
+
+	for k, v in pairs(list) do
 		local str = hexagon.print(v.pos)
 		for k, e in pairs(v) do
 			if k ~= "pos" and type(e) ~= "table" and type(e) ~= "function" then
@@ -71,7 +73,7 @@ local function action_menu(entity)
 			end
 		else
 			for k, v in pairs(item) do
-				if k ~= "name" then
+				if k ~= "name" and k ~= "owner" then
 					if type(v) == "table" then
 						str = str .. '\t' .. k .. ' ' .. hexagon.print(v)
 					elseif type(v) ~= "function" then
@@ -138,7 +140,7 @@ local function action_menu(entity)
 			table.insert(list, {args[i], args[i + 1]})
 		end
 
-		res = entity.action(sk, list)
+		res = entity:action(sk, list)
 	else
 		res = entity:action(sk, table.unpack(args))
 	end
@@ -176,9 +178,12 @@ local function main()
 	local map_scale = 8
 
 	core.log_level(true)
-	util.random_setup("lua")
+	util.random_setup("lcg")
 
-	local map = require("map")(map_scale)
+	local map = require("map")(map_scale, {
+		"stars_energy",
+		"waters",
+	})
 	local player_team = map:new_team(player_control)
 
 	map:spawn(player_team, "shian", {1, 5})

@@ -26,6 +26,6 @@ local buff_attack = {
 
 return function()
 	local obj = core.new_entity("target", template)
-	buff(obj, buff_attack)
+	buff.insert(obj, buff_attack)
 	return obj
 end

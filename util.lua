@@ -4,18 +4,31 @@ local rng_table = {
 			math.randomseed(seed)
 		end
 		return {
-			raw = function(self, len)
-				if not len then
-					return math.random(0, 255)
-				end
-				local list = {}
-				for i = 1, len, 1 do
-					table.insert(list, math.random(0, 255))
-				end
-				return string.char(table.unpack(list))
+			length = 15,
+			raw = function(self)
+				return math.random(0, 0x7FFF)
 			end,
 			uniform = function(self, a, b)
 				return math.random(a, b)
+			end,
+		}
+	end,
+
+	lcg = function(seed)
+		local function step(seed)
+			local res = seed * 0x5DEECE66D + 11
+			return res & 0xFFFFFFFFFFFF
+		end
+		return {
+			seed = seed or 1,
+			length = 32,
+			raw = function(self)
+				self.seed = step(self.seed)
+				return self.seed >> 16
+			end,
+			uniform = function(self, a, b)
+				self.seed = step(self.seed)
+				return a + self.seed % (b - a + 1)
 			end,
 		}
 	end,
@@ -28,17 +41,13 @@ local rng_table = {
 
 		return {
 			rng_handle = rng_handle,
-			raw = function(self, len)
-				if len then
-					return self.rng_handle:read(len)
-					-- return table.pack(string.byte(str, 1, len))
-				else
-					local str = self.rng_handle:read(1)
-					return string.byte(str)
-				end
+			length = 8,
+			raw = function(self)
+				local str = self.rng_handle:read(1)
+				return string.byte(str)
 			end,
 			uniform = function(self, a, b)
-				local list = table.pack(string.byte(self:raw(8), 1, 8))
+				local list = table.pack(string.byte(self.rng_handle:read(8), 1, 8))
 				local val = 0
 				for i = 1, 8, 1 do
 					val = (val << 8) | list[i]
@@ -58,6 +67,8 @@ local function random_setup(source, ...)
 	else
 		error("invalid rng source " .. source)
 	end
+
+	return rng.length
 end
 
 local function random(mode, ...)
@@ -75,7 +86,7 @@ end
 local function find(table, val, cmp)
 	for k, v in pairs(table) do
 		if (cmp and cmp(v, val)) or (v == val) then
-			return k
+			return k, v
 		end
 	end
 

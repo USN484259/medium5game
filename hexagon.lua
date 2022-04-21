@@ -151,6 +151,33 @@ local function range(pos, dis)
 	return fan(pos, dis)
 end
 
+local function connected(pos, limit, judge)
+	local res = { pos }
+	local prev = { pos }
+
+	for r = 1, limit, 1 do
+		local cur = {}
+		for i = 1, #prev, 1 do
+			local adj = adjacent(prev[i])
+			for j = 1, #adj, 1 do
+				local p = adj[j]
+				if not util.find(res, p, cmp) and judge(prev[i], p) then
+					table.insert(res, p)
+					table.insert(cur, p)
+				end
+			end
+		end
+
+		if #cur == 0 then
+			break
+		else
+			prev = cur
+		end
+	end
+
+	return res
+end
+
 return {
 	print = function(p)
 		return '(' .. p[1] .. ',' .. p[2] .. ')'
@@ -163,4 +190,5 @@ return {
 	fan = fan,
 	line = line,
 	range = range,
+	connected = connected,
 }

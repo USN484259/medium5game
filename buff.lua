@@ -126,6 +126,23 @@ local list = {
 	blackhole = blackhole,
 }
 
+local function buff_get(entity, name)
+	for k, b in pairs(entity.buff) do
+		if b.name == name then
+			return b
+		end
+	end
+end
+
+local function buff_remove(entity, tar)
+	for k, b in pairs(entity.buff) do
+		if (type(tar) == "string" and b.name == tar) or (tar == b) then
+			table.remove(entity.buff, k)
+			return b
+		end
+	end
+end
+
 local function buff_insert(entity, name, ...)
 	local b
 	if type(name) == "string" then
@@ -134,22 +151,26 @@ local function buff_insert(entity, name, ...)
 		b = util.copy_table(name)
 	end
 	if not b then
-		return false
+		return
 	end
 	b.owner = entity
 
-	if entity.immune and entity.immune[b.name] then
-		return false
+	if b.initial and not b:initial(...) then
+		return
 	end
-
-	if b.unique then
-		util.unique_insert(entity.buff, b, function(a, b)
-			return a.name == b.name
-		end)
-	else
-		table.insert(entity.buff, b)
+--[[
+	if b.merge then
+		while true do
+			local t = buff_remove(entity, name)
+			if not t then
+				break
+			end
+			b:merge(t)
+		end
 	end
-	return true
+--]]
+	table.insert(entity.buff, b)
+	return b
 end
 
 local function buff_tick(team)

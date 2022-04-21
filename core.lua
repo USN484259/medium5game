@@ -159,8 +159,8 @@ end
 
 local function miss(speed, accuracy)
 	local val = util.random("raw")
-	log("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. val)
-	val = (val & 0x0F) ~ (val >> 4)
+	log("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. string.format("0x%X", val))
+	val = (val ~ (val >> 4)) & 0x0F
 	return val >= (8 + (accuracy - speed) * 2)
 end
 
