@@ -3,11 +3,14 @@ local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
+local swim_depth = 40
+local downpour_duration = 3
+
 local function bubble_trigger(entity, buff_name, ...)
 	local b = buff.remove(entity, "bubble")
 	if b then
 		core.damage(entity, {
-			damage = b.power,
+			damage = b.strength,
 			element = "physical",
 		})
 	end
@@ -15,6 +18,7 @@ local function bubble_trigger(entity, buff_name, ...)
 	if buff_name then
 		buff.insert(entity, buff_name, ...)
 	end
+
 end
 
 local template = {
@@ -26,6 +30,7 @@ local template = {
 	energy_cap = 1000,
 	generator = 100,
 	moved = false,
+	free_ultimate = true,
 	resistance = {
 		physical = 0.2,
 		fire = 0.3,
@@ -45,25 +50,86 @@ local template = {
 			entity.map:damage(entity.team, { target }, {
 				damage = 100,
 				element = "water",
-			}, bubble_trigger, "bubble", entity.team, 2)
+			}, buff.insert, "bubble", entity.team, entity.power, 2)
 		end,
 
 		area = function(entity, area)
 			entity.map:damage(entity.team, area, {
 				damage = 200,
 				element = "water",
-			}, bubble_trigger, "bubble", entity.team, 2)
+			}, buff.insert, "bubble", entity.team, entity.power, 2)
 
 			entity.map:heal(entity.team, area, {
 				ratio = 0.2,
 				max_cap = 100,
-			}, buff.insert, "bubble", entity.team, 2)
+			}, buff.insert, "bubble", entity.team, entity.power, 2)
 		end,
 	},
 	layer = "waters",
 }
 
-local swim_depth = 40
+local buff_strengthen = {
+	name = "strengthen",
+
+	tick = {{
+		core.priority.pre_stat, function(self)
+			local entity = self.owner
+			local area = hexagon.adjacent(entity.pos)
+
+			for k, p in pairs(area) do
+				local e = entity.map:get(p)
+				if e and e.team == entity.team then
+					if entity.status.ultimate then
+						if e.speed > 0 then
+							e.speed = e.speed + 2
+						end
+						core.strengthen(e, 0.2, 0.9)
+						e.power = e.power * 5 // 4
+					else
+						if e.speed > 0 then
+							e.speed = e.speed + 1
+						end
+						core.strengthen(e, 0.1, 0.8)
+						e.power = e.power * 9 // 8
+					end
+					e.status.wet = true
+				end
+			end
+			return true
+		end,
+	}}
+}
+
+local buff_downpour = {
+	name = "downpour",
+	priority = core.priority.ultimate,
+	duration = downpour_duration,
+
+	tick = {{
+		core.priority.ultimate, function(self)
+			local entity = self.owner
+			entity.status.ultimate = true
+			entity.power = entity.power * 2
+			return true
+		end,
+	}, {
+		core.priority.damage, function(self)
+			local entity = self.owner
+			local area = hexagon.range(entity.pos, 2)
+			entity.map:damage(entity.team, area, {
+				damage = entity.power / 2,
+				element = "water",
+				bubble_trigger = true,
+			}, bubble_trigger, "wet", 2)
+
+			entity.map:heal(entity.team, area, {
+				heal = entity.power // 4,
+			}, buff.insert, "wet", 2)
+
+			return true
+		end
+	}}
+}
 
 local function in_water(entity)
 	local water = entity.map:layer("waters", entity.pos)
@@ -86,9 +152,7 @@ end
 local function consume_water(skill)
 	local entity = skill.owner
 	local req = skill.water_cost
-	local gound_water = true
-
-	error "REVIEW"
+	local ground_water = true
 
 	while req > 0 do
 		if not ground_water then
@@ -111,17 +175,19 @@ local function consume_water(skill)
 		local val = entity.map:layer("waters", entity.pos)
 		if val and val > 0 then
 			unit = math.ceil(req / (count + 3))
-			req = req - entity.map:layer("waters", entity.pos, math.min(req, 3 * unit))
+			req = req - entity.map:layer("waters", entity.pos, - math.min(req, 3 * unit))
 			ground_water = true
 		else
 			unit = math.ceil(req / count)
 		end
 
+		print("comsume_water " .. req .. '\t' .. unit)
+
 		for k, p in pairs(ring) do
 			if req <= 0 then
 				break
 			end
-			req = req - entity.map:layer("waters", p, unit)
+			req = req - (entity.map:layer("waters", p, -unit) or 0)
 			ground_water = true
 		end
 	end
@@ -142,6 +208,52 @@ local function water_area(entity, range, threshold, shore)
 	end)
 end
 
+local function new_bubble()
+	local bubble = core.new_entity("bubble", {
+		health_cap = 100,
+		resistance = {
+			water = 0.4,
+			fire = -0.2,
+		},
+		immune = {
+			drown = true,
+			bubble = true,
+		},
+		hook = {{
+			name = "bubble_trigger",
+			priority = core.priority.first,
+			func = function(self, entity, damage)
+				if damage.bubble_trigger then
+					entity.map:kill(entity)
+					return nil
+				end
+				return damage
+			end,
+		}},
+		death = function(entity)
+			entity.map:damage(0, hexagon.adjacent(entity.pos), {
+				damage = 60,
+				element = "water",
+			}, buff.insert, "wet", 1)
+		end,
+	})
+	bubble.ttl = 4
+	buff.insert(bubble, {
+		name = "bubble_entity",
+		priority = core.priority.damage,
+		tick = function(self)
+			local entity = self.owner
+			if entity.ttl > 0 then
+				entity.ttl = entity.ttl - 1
+			else
+				entity.map:kill(entity)
+			end
+			return true
+		end,
+	})
+	return bubble
+end
+
 local skill_move = {
 	name = "move",
 	type = "waypoint",
@@ -150,8 +262,9 @@ local skill_move = {
 	enable = true,
 	cost = 20,
 	step = 2,
+	power_req = 20,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		if in_water(entity) then
 			self.type = "target"
@@ -189,7 +302,7 @@ local skill_move = {
 				return res
 			end
 		end
-		self.enable = core.skill_update(self, tick) and not entity.moved
+		self.enable = core.skill_update(self) and not entity.moved
 	end,
 }
 
@@ -203,20 +316,21 @@ local skill_attack = {
 	cost = 40,
 	water_cost = 20,
 	range = 3,
+	power_req = 20,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		if in_water(entity) then
 			self.shots = 4
 			self.water_cost = 100
-			self.range = 8
+			self.range = 6
 		else
 			self.shots = 1
 			self.water_cost = 20
 			self.range = 3
 		end
 
-		self.enable = core.skill_update(self, tick) and check_water(self)
+		self.enable = core.skill_update(self) and check_water(self)
 	end,
 	use = function(self, target_list)
 		local entity = self.owner
@@ -231,6 +345,7 @@ local skill_attack = {
 			damage = entity.power * pwr,
 			element = "water",
 			accuracy = entity.accuracy,
+			bubble_trigger = true,
 		}, bubble_trigger, "wet", 2)
 
 		entity.map:heal(entity.team, target_list, {
@@ -245,61 +360,81 @@ local skill_attack = {
 local skill_convert = {
 	name = "convert",
 	type = "effect",
-	cooldown = 1,
+	cooldown = 0,
 	remain = 0,
 	enable = true,
 	cost = 80,
-	update = function(self, tick)
+	power_req = 8,
+
+	update = function(self)
 		local entity = self.owner
+		local wand = entity.inventory[1]
 		local jellyfish = entity.inventory[2]
-		self.enable = core.skill_update(self, tick) and (jellyfish.water < jellyfish.water_cap)
+		self.enable = core.skill_update(self) and (jellyfish.water < jellyfish.water_cap) and (wand.remain == 0)
 	end,
 	use = function(self)
 		local entity = self.owner
+		local wand = entity.inventory[1]
 		local jellyfish = entity.inventory[2]
 		jellyfish.water = math.min(jellyfish.water + 50, jellyfish.water_cap)
+		wand.remain = wand.cooldown
 		return true
 	end,
 }
 
 local skill_bubble = {
 	name = "bubble",
-	type = "target",
+	type = "multitarget",
+	shots = 1,
 	cooldown = 2,
 	remain = 0,
 	enable = true,
 	cost = 80,
-	water_cost = 20,
+	water_cost = 30,
 	range = 2,
+	power_req = 30,
 
-	update = function(self, tick)
-		self.enable = core.skill_update(self, tick) and check_water(self)
+	update = function(self)
+		local entity = self.owner
+		if in_water(entity) then
+			self.shots = 2
+			self.water_cost = 50
+			self.range = 4
+		else
+			self.shots = 1
+			self.water_cost = 30
+			self.range = 2
+		end
+
+		self.enable = core.skill_update(self) and check_water(self)
 	end,
 
-	use = function(self, target)
+	use = function(self, target_list)
 		local entity = self.owner
-		if not hexagon.distance(entity.pos, target, self.range) then
+
+		if not core.multi_target(self, target_list, true) then
 			return false
 		end
 
-		local seed = {
-			name = "water",
-			team = entity.team,
-			power = entity.power,
-			pos = target,
-			range = 0,
-		}
+		for i = 1, #target_list, 1 do
+			local seed = {
+				name = "water",
+				team = entity.team,
+				power = entity.power,
+				pos = target_list[i],
+				range = 0,
+			}
 
-		seed = entity.map:contact(seed)
-		if seed then
-			local e = entity.map:get(seed.pos)
-			if e then
-				buff.insert(e, buff_bubble, entity.team, 2)
-			else
-				entity.map:spawn(entity.team, new_bubble, seed.pos)
+			seed = entity.map:contact(seed)
+			if seed then
+				local e = entity.map:get(seed.pos)
+				if e then
+					buff.insert(e, "bubble", entity.team, entity.power, 2)
+				else
+					entity.map:spawn(0, new_bubble, seed.pos)
+				end
 			end
 		end
-
 		consume_water(self)
 		return true
 	end,
@@ -313,8 +448,9 @@ local skill_revive = {
 	enable = true,
 	cost = 200,
 	water_cost = 120,
+	power_req = 30,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		if in_water(entity) then
 			self.type = "effect"
@@ -326,7 +462,7 @@ local skill_revive = {
 				entity.map:heal(entity.team, area, {
 					ratio = 0.4,
 					overcap = true,
-				}, buff.insert, "bubble", 2)
+				}, buff.insert, "bubble", entity.team, 2 * entity.power, 2)
 				consume_water(self)
 				return true
 			end
@@ -339,12 +475,12 @@ local skill_revive = {
 				entity.map:heal(entity.team, { tar }, {
 					ratio = 0.4,
 					overcap = true,
-				}, buff.insert, "bubble", 2)
+				}, buff.insert, "bubble", entity.team, entity.power, 2)
 				consume_water(self)
 				return true
 			end
 		end
-		self.enable = core.skill_update(self, tick) and check_water(self)
+		self.enable = core.skill_update(self) and check_water(self)
 	end,
 }
 
@@ -358,16 +494,19 @@ local skill_downpour = {
 	water_cost = 800,
 	range = 4,
 
-	update = function(self, tick)
-		self.enable = core.skill_update(self, tick) and check_water(self)
+	update = function(self)
+		self.enable = core.skill_update(self) and check_water(self)
 	end,
 	use = function(self)
 		local entity = self.owner
 		local area = hexagon.range(entity.pos, self.range)
 		entity.map:effect(entity.team, area, "downpour", downpour_duration)
 		consume_water(self)
-		entity.status.ultimate = true
 		buff.insert(entity, buff_downpour)
+
+		for k, p in pairs(area) do
+			entity.map:layer("waters", p, 10)
+		end
 
 		return true
 	end,
@@ -381,12 +520,15 @@ return function()
 		skill_bubble,
 		skill_revive,
 		skill_downpour,
+	}, {
+		buff_strengthen,
 	})
 
 	table.insert(haiyi.inventory, {
 		name = "wand_of_sea",
-		tick = function(self)
-		end,
+		cooldown = 1,
+		remain = 0,
+		tick = core.common_tick,
 	})
 
 	table.insert(haiyi.inventory, {
@@ -396,6 +538,9 @@ return function()
 		water_cap = 800,
 		tick = function(self)
 			local entity = self.owner
+			if entity.status.ultimate then
+				return
+			end
 			local req = math.min(self.water_cap // 8, self.water_cap - self.water)
 			local val = entity.map:layer("waters", entity.pos, req)
 			if val then
@@ -404,8 +549,6 @@ return function()
 			end
 		end,
 	})
-	buff.insert(haiyi, buff_swimming)
-	buff.insert(haiyi, buff_healing)
 
 	return haiyi
 end

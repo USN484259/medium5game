@@ -7,7 +7,7 @@ local template = {
 	health_cap = 600,
 	speed = 2,
 	accuracy = 2,
-	power = 1000,
+	power = 800,
 	sight = 2,
 	energy_cap = 1000,
 	generator = 100,
@@ -42,38 +42,44 @@ local template = {
 
 local buff_apple = {
 	name = "apple",
-	priority = core.priority.damage,
+	priority = core.priority.stat,
 	duration = 4,
-	tick = function(self)
-		if not core.common_tick(self) then
-			return false
+	tick = {{
+		core.priority.pre_stat, function(self)
+			local entity = self.owner
+			if duration > 1 then
+				entity.generator = entity.generator * 2
+				entity.power = entity.power * 9 // 8
+			end
+			return true
 		end
-		local entity = self.owner
-		if duration > 1 then
-			entity.generator = entity.generator * 2
+	}, {
+		core.priority.damage, function(self)
+			local entity = self.owner
+			core.damage(entity, {
+				damage = 5,
+				element = "mental",
+				real = true,
+			})
+			return true
 		end
-		core.damage(entity, {
-			damage = 5,
-			element = "mental",
-			real = true,
-		})
-		return true
-	end,
+	}}
 }
 
 local buff_shield = {
 	name = "shield",
-	priority = core.priority.shield,
-	tick = function(self)
-		local entity = self.owner
-		if entity.inventory[1]:get() == "shield" and not entity.status.ultimate then
-			entity.speed = math.floor(entity.speed / 2)
-		end
-		return true
-	end,
+	tick = {{
+		core.priority.stat, function(self)
+			local entity = self.owner
+			if entity.inventory[1]:get() == "shield" and not entity.status.ultimate then
+				entity.speed = math.floor(entity.speed / 2)
+			end
+			return true
+		end,
+	}},
 	defer = function(self)
 		local entity = self.owner
-		if entity.inventory[1]:get() ~= "shield" or entity.status.ultimate then
+		if entity.inventory[1]:get() ~= "shield" or entity.status.down or entity.status.ultimate then
 			return
 		end
 		local list = entity.map:get_area(hexagon.range(entity.pos, 1))
@@ -85,9 +91,10 @@ local buff_shield = {
 					origin = entity,
 					func = function(self, entity, damage)
 						local origin = self.origin
-
+						local res
 						-- absorb 2 damage using 1 energy
-						origin.energy, damage = core.energy_shield(damage, origin.energy, 2)
+						res, damage = core.shield(damage, 2 * origin.energy)
+						origin.energy = res // 2
 						return damage
 					end
 				})
@@ -98,41 +105,46 @@ local buff_shield = {
 
 local buff_final_guard = {
 	name = "final_guard",
-	priority = core.priority.first,
 	duration = 4,
-	tick = function(self)
-		local entity = self.owner
-		if not core.common_tick(self) then
-			return false
-		end
-		local list = entity.map:get_team(entity.team)
-		for k, e in pairs(list) do
-			core.hook(e, {
-				name = "final_guard",
-				priority = core.priority.shield,
-				origin = entity,
-				func = function(self, entity, damage)
-					local origin = self.origin
 
-					-- absorb 2 damage using 1 energy or 1 health
-					origin.energy, damage = core.energy_shield(damage, origin.energy, 2)
-					if damage then
-						core.damage(origin, {
-							damage = damage.damage / 2,
-							element = damage.element,
-							real = true,
-						})
+	tick = {{
+		core.priority.ultimate, function(self)
+			local entity = self.owner
+			entity.status.ultimate = true
+			entity.generator = 0
+			entity.speed = 0
+			for k, v in pairs(entity.resistance) do
+				entity.resistance[k] = math.min(0.2, v)
+			end
+
+			local list = entity.map:get_team(entity.team)
+			for k, e in pairs(list) do
+				core.hook(e, {
+					name = "final_guard",
+					priority = core.priority.shield,
+					origin = entity,
+					func = function(self, entity, damage)
+						local origin = self.origin
+						local res
+						-- absorb 2 damage using 1 energy or 1 health
+						res, damage = core.shield(damage, 2 * origin.energy)
+						origin.energy = res // 2
+
+						if damage then
+							core.damage(origin, {
+								damage = damage.damage / 2,
+								element = damage.element,
+								real = true,
+							})
+						end
+						return nil
 					end
-					return nil
-				end
-			})
-		end
-		entity.status.ultimate = true
-		entity.generator = 0
-		entity.speed = 0
+				})
+			end
 
-		return true
-	end,
+			return true
+		end,
+	}}
 }
 
 local skill_move = {
@@ -142,9 +154,10 @@ local skill_move = {
 	remain = 0,
 	enable = true,
 	cost = 30,
+	power_req = 200,
 	step = 1,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local mode = entity.inventory[1]:get()
 		if mode == "shield" then
@@ -155,7 +168,7 @@ local skill_move = {
 			self.cooldown = 1
 		end
 
-		core.skill_update(self, tick)
+		core.skill_update(self)
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
@@ -175,8 +188,9 @@ local skill_attack = {
 	remain = 0,
 	enable = true,
 	cost = 200,
+	power_req = 400,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local mode = entity.inventory[1]:get()
 
@@ -211,13 +225,13 @@ local skill_attack = {
 					damage = entity.power / 5,
 					element = "earth",
 					type = "ground",
-				}, buff.insert, "block", 1)
+				}, buff.insert, "block", entity.power / 2, 1)
 
 				return true
 			end
 		end
 
-		core.skill_update(self, tick)
+		core.skill_update(self)
 	end,
 }
 
@@ -228,6 +242,7 @@ local skill_transform = {
 	remain = 0,
 	enable = true,
 	cost = 0,
+	item = "yankai",
 
 	update = core.skill_update,
 	use = function(self)
@@ -244,14 +259,15 @@ local skill_cannon = {
 	remain = 0,
 	enable = true,
 	cost = 500,
+	power_req = 600,
 
 	range = { 2, 5 },
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local mode = entity.inventory[1]:get()
 
-		self.enable = core.skill_update(self, tick) and mode ~= "shield"
+		self.enable = core.skill_update(self) and mode ~= "shield"
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -293,9 +309,10 @@ local skill_apple = {
 	remain = 0,
 	enable = true,
 	cost = 0,
-	update = function(self, tick)
+
+	update = function(self)
 		local entity = self.owner
-		self.enable = core.skill_update(self, tick) and (entity.inventory[2].remain == 0)
+		self.enable = core.skill_update(self) and (entity.inventory[2].remain == 0)
 	end,
 	use = function(self)
 		local entity = self.owner
@@ -322,21 +339,11 @@ local skill_final_guard = {
 	remain = 0,
 	enable = true,
 	cost = 0,
-	noblock = true,
 
-	update = function(self, tick)
-		local entity = self.owner
-		local active = entity.status.ultimate
-
-		core.skill_update(self, tick and not active)
-	end,
+	update = core.skill_update,
 	use = function(self)
 		local entity = self.owner
 
-		entity.status.ultimate = true
-		for k, v in pairs(entity.resistance) do
-			entity.resistance[k] = math.min(0.2, v)
-		end
 		buff.insert(entity, buff_final_guard)
 
 		return true
@@ -351,6 +358,8 @@ return function()
 		skill_cannon,
 		skill_apple,
 		skill_final_guard,
+	}, {
+		buff_shield,
 	})
 
 	table.insert(shian.inventory, {
@@ -374,10 +383,12 @@ return function()
 		tick = core.common_tick,
 	})
 
-	buff.insert(shian, buff_shield)
 
 	shian.alive = function(self)
 		return self.health > 0 or self.status.ultimate
 	end
+
+	buff.insert(shian, buff_shield)
+
 	return shian
 end

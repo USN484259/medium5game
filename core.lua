@@ -2,12 +2,24 @@ local util = require("util")
 local hexagon = require("hexagon")
 
 local priority = {
-	first = 1,
-	stat = 2,
-	post_stat = 3,
-	damage = 4,
-	shield = 5,
-	last = 6,
+	-- common --
+	first = 0,
+	last = 65535,
+
+	-- buff --
+	ultimate = 1,
+	down = 2,
+	pre_stat = 10,
+	block = 13,
+	fly = 14,
+	drown = 15,
+	stat = 20,
+	post_stat = 40,
+	damage = 100,
+
+	-- hook --
+	shield = 10,
+	bubble = 20,
 }
 
 local do_log = false
@@ -34,51 +46,66 @@ local function common_tick(obj)
 		end
 	elseif obj.remain then
 		obj.remain = math.max(obj.remain - 1, 0)
-	else
-		error(obj)
 	end
 	return true
 end
 
-local function skill_update(skill, tick)
+local function skill_update(skill)
 	local entity = skill.owner
 	local enable = true
 
 	if entity.status.down then
 		enable = false
-		tick = false
 	end
 
-	if entity.status.ultimate then
+	if entity.status.ultimate and not entity.free_ultimate then
 		enable = false
 	end
 
-	if entity.status.block and not skill.noblock then
+	if skill.power_req and entity.power < skill.power_req then
 		enable = false
 	end
 
-	if tick then
-		common_tick(skill)
-	end
 	skill.enable = enable
 	return enable
 end
 
-local function energy_shield(damage, energy, ratio)
-	ratio = ratio or 1
-	local cap = energy * ratio
-	if damage.damage <= cap then
-		log("shield blocked " .. damage.damage .. " damage")
-		return math.floor(energy - damage.damage / ratio)
+
+local function shield(damage, strength, ratio)
+	local dmg = damage.damage
+	local req = dmg * (ratio or 1)
+	local blk = math.floor(math.min(req, strength))
+
+	log("shield blocked " .. blk .. " damage")
+
+	if blk >= dmg then
+		return strength - blk
 	else
-		log("shield blocked " .. cap .. " damage")
-		damage.damage = damage.damage - cap
-		return 0, damage
+		damage.damage = dmg - blk
+		return strength - blk, damage
+	end
+end
+
+local function weaken(entity, value, ratio)
+	for k, v in pairs(entity.resistance) do
+		if v > 0 then
+			local l = v - value
+			if ratio then
+				l = math.min(l, v * ratio)
+			end
+			entity.resistance[k] = math.max(0, l)
+		end
+	end
+end
+
+local function strengthen(entity, value, top)
+	for k, v in pairs(entity.resistance) do
+		entity.resistance[k] = math.min(v + value, top or 1)
 	end
 end
 
 local function multi_target(skill, target_list, unique)
-	if not target_list or #target_list < 1 then
+	if not target_list or #target_list < 1 or #target_list > skill.shots then
 		return false
 	end
 	for i = 1, #target_list, 1 do
@@ -144,8 +171,14 @@ local function teleport(entity, target)
 end
 
 local function heal(entity, heal)
+	if entity.health >= entity.health_cap then
+		return 0
+	end
 	local val = heal.heal or heal.ratio * entity.health_cap
-	val = math.floor(math.max(math.min(val, heal.max_cap), heal.min_cap))
+	if heal.max_cap then
+		val = math.min(val, heal.max_cap)
+	end
+	val = math.floor(math.max(val, heal.min_cap or 0))
 
 	if not heal.overcap then
 		local req = math.max(0, entity.health_cap - entity.health)
@@ -183,12 +216,15 @@ local function damage(entity, damage)
 		damage = util.copy_table(damage)
 		for i = 1, #entity.hook, 1 do
 			damage = entity.hook[i]:func(entity, damage)
-			if not damage then
+			if not damage or damage.damage == 0 then
 				return nil
 			end
 		end
 		local resist = entity.resistance[damage.element] or 0
 		val = damage.damage * (1 - resist)
+	end
+	if damage.damage == 0 then
+		return
 	end
 	if damage.element == "mental" then
 		log(entity.name .. " lose " .. val .. " sanity")
@@ -199,7 +235,7 @@ local function damage(entity, damage)
 	end
 	if not entity:alive() then
 		log(entity.name .. " died")
-		entity.map:remove(entity)
+		entity.map:kill(entity)
 		return val, entity.health_cap
 	end
 	return val
@@ -217,8 +253,9 @@ local function tick(entity)
 		for k, v in pairs(entity.inventory) do
 			v:tick()
 		end
+
 		for k, v in pairs(entity.skills) do
-			v:update(true)
+			v.remain = math.max(v.remain - 1, 0)
 		end
 		entity.active = true
 	else
@@ -267,6 +304,7 @@ local function new_entity(name, template)
 		status = {},
 		hook = {},
 		buff = {},
+		immune = {},
 
 		alive = function(self)
 			return self.health > 0
@@ -275,7 +313,7 @@ local function new_entity(name, template)
 	}, template)
 end
 
-local function new_character(name, template, skills)
+local function new_character(name, template, skills, fixed_buff)
 	local obj = util.merge_table(new_entity(name, template), {
 		energy = template.generator,
 		sanity = 100,
@@ -292,6 +330,14 @@ local function new_character(name, template, skills)
 		table.insert(obj.skills, sk)
 	end
 
+	if fixed_buff then
+		for i = 1, #fixed_buff, 1 do
+			local b = util.copy_table(fixed_buff[i])
+			b.owner = obj
+			table.insert(obj.buff, b)
+		end
+	end
+
 	return obj
 end
 
@@ -301,7 +347,9 @@ return {
 	log_level = log_level,
 	common_tick = common_tick,
 	skill_update = skill_update,
-	energy_shield = energy_shield,
+	shield = shield,
+	weaken = weaken,
+	strengthen = strengthen,
 	multi_target = multi_target,
 	hook = hook,
 	move = move,

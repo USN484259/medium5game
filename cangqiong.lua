@@ -3,6 +3,8 @@ local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
+local storm_duration = 3
+
 local template = {
 	health_cap = 1000,
 	speed = 8,
@@ -37,27 +39,28 @@ local template = {
 
 }
 
-local storm_duration = 3
-
 local buff_storm = {
 	name = "storm",
-	priority = core.priority.damage,
+	priority = core.priority.ultimate,
 	duration = storm_duration,
-	tick = function(self)
-		local entity = self.owner
-		if not core.common_tick(self) then
-			return false
+
+	tick = {{
+		core.priority.ultimate, function(self)
+			local entity = self.owner
+			entity.status.ultimate = true
+			entity.speed = math.floor(entity.speed / 2)
+			return true
 		end
-		entity.map:damage(entity.team, hexagon.range(entity.pos, 4), {
-			damage = 60,
-			element = "air",
-		})
-
-		entity.status.ultimate = true
-		entity.speed = math.floor(entity.speed / 2)
-
-		return true
-	end,
+	}, {
+		core.priority.damage, function(self)
+			local entity = self.owner
+			entity.map:damage(entity.team, hexagon.range(entity.pos, 4), {
+				damage = 60,
+				element = "air",
+			})
+			return true
+		end
+	}}
 }
 
 local skill_move = {
@@ -68,10 +71,11 @@ local skill_move = {
 	enable = true,
 	cost = 10,
 	step = 3,
+	power_req = 40,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
-		self.enable = core.skill_update(self, tick) and not entity.moved
+		self.enable = core.skill_update(self) and not entity.moved
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
@@ -97,8 +101,9 @@ local skill_attack = {
 	remain = 0,
 	enable = true,
 	cost = 40,
+	power_req = 60,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local arrow = entity.inventory[1]:get()
 
@@ -107,7 +112,7 @@ local skill_attack = {
 		self.range = arrow.range
 		self.attach = arrow.single
 
-		core.skill_update(self, tick)
+		core.skill_update(self)
 	end,
 	use = function(self, target_list)
 		local entity = self.owner
@@ -135,6 +140,7 @@ local skill_select = {
 	remain = 0,
 	enable = true,
 	cost = 0,
+	item = "lanyu",
 
 	update = core.skill_update,
 	use = function(self)
@@ -151,12 +157,11 @@ local skill_probe = {
 	remain = 0,
 	enable = true,
 	cost = 80,
-	noblock = true,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local butterfly = entity.inventory[2]
-		self.enable = core.skill_update(self, tick) and butterfly.remain > 0
+		self.enable = core.skill_update(self) and butterfly.remain > 0
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -181,6 +186,7 @@ local skill_wind_control = {
 	noblock = true,
 	range = 4,
 	length = 3,
+	power_req = 60,
 
 	update = core.skill_update,
 	use = function(self, point, direction)
@@ -204,13 +210,14 @@ local skill_arrow_rain = {
 	enable = true,
 	cost = 300,
 	range = 3,
+	power_req = 80,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local arrow = entity.inventory[1]:get()
 		self.func = arrow.area
 
-		core.skill_update(self, tick)
+		core.skill_update(self)
 	end,
 	use = function(self)
 		local entity = self.owner
@@ -224,18 +231,18 @@ local skill_arrow_rain = {
 local skill_storm = {
 	name = "storm",
 	type = "effect",
-	cooldown = 10,
+	cooldown = 12,
 	remain = 0,
 	enable = true,
 	cost = 800,
 	range = 5,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local butterfly = entity.inventory[2]
 		local active = entity.status.ultimate
 
-		self.enable = core.skill_update(self, tick and not active) and butterfly.remain == 0
+		self.enable = core.skill_update(self) and butterfly.remain == 0
 	end,
 	use = function(self)
 		local entity = self.owner
@@ -243,7 +250,6 @@ local skill_storm = {
 
 		entity.map:effect(entity.team, hexagon.range(entity.pos, self.range), "storm", entity.pos, self.range, storm_duration)
 
-		entity.status.ultimate = true
 		butterfly.remain = butterfly.cooldown
 		buff.insert(entity, buff_storm)
 
@@ -260,6 +266,8 @@ return function()
 		skill_wind_control,
 		skill_arrow_rain,
 		skill_storm,
+	}, {
+		buff_fly,
 	})
 
 	table.insert(cangqiong.inventory, {
@@ -273,7 +281,7 @@ return function()
 			self.modes = {}
 			local list = entity.map:get_area(hexagon.range(entity.pos, 1))
 			for k, e in pairs(list) do
-				if e.team == entity.team and e.quiver then
+				if e.team == entity.team and e.quiver and not (e.status.down or e.status.ultimate) then
 					table.insert(self.modes, e.quiver)
 				end
 			end
@@ -299,8 +307,6 @@ return function()
 		remain = 0,
 		tick = core.common_tick,
 	})
-
-	buff.insert(cangqiong, "fly")
 
 	return cangqiong
 end

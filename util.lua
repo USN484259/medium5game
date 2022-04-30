@@ -93,6 +93,23 @@ local function find(table, val, cmp)
 	return nil
 end
 
+local function stable_sort(table, cmp)
+	cmp = cmp or function(a, b)
+		return a < b
+	end
+	for i = 1, #table - 1, 1 do
+		local p = i
+		for j = i + 1, #table, 1 do
+			if cmp(table[j], table[p]) then
+				p = j
+			end
+		end
+		if p ~= i then
+			table[i], table[p] = table[p], table[i]
+		end
+	end
+end
+
 local function dump_table(table, prefix)
 	for k,v in pairs(table) do
 		print((prefix or "") .. k,v)
@@ -151,6 +168,7 @@ return {
 	random_setup = random_setup,
 	random = random,
 	find = find,
+	stable_sort = stable_sort,
 	dump_table = dump_table,
 	copy_table = copy_table,
 	append_table = append_table,

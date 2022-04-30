@@ -47,37 +47,49 @@ local template = {
 
 local buff_curse = {
 	name = "curse_of_phoenix",
-	priority = core.priority.last,
-	tick = function(self)
-		local entity = self.owner
-		local t = entity.inventory[1].temperature
-		local cooling = 4
-		if entity.status.cooling then
-			cooling = cooling + 1
-		end
-		if entity.status.wet then
-			cooling = cooling * 2
-			entity.power = entity.power * 0.8
-		end
+	tick = {{
+		core.priority.post_stat, function(self)
+			local entity = self.owner
+			local t = entity.inventory[1].temperature
+			local cooling = 4
+			if entity.status.cooling then
+				cooling = cooling + 2
+			end
+			if entity.status.wet then
+				cooling = cooling * 2
+				entity.power = entity.power * 0.8
+			end
 
-		t = math.max(0, t - cooling)
-		entity.inventory[1].temperature = t
-		entity.power = entity.power * (1 + 0.1 * (t // 10))
-		if t > 40 then
-			core.damage(entity, {
-				damage = (t - 40) // 4,
-				element = "mental",
-				real = true,
-			})
-			core.damage(entity, {
-				damage = (entity.health_cap // 100) * (t - 40) // 4,
-				element = "fire",
-				real = true,
-			})
-		end
+			if entity.status.down then
+				cooling = cooling // 2
+			end
 
-		return true
-	end,
+			t = math.max(0, t - cooling)
+			entity.inventory[1].temperature = t
+			entity.power = entity.power * (1 + 0.1 * (t // 10))
+
+			return true
+		end
+	}, {
+		core.priority.damage, function(self)
+			local entity = self.owner
+			local t = entity.inventory[1].temperature
+			if t > 40 then
+				core.damage(entity, {
+					damage = (t - 40) // 4,
+					element = "mental",
+					real = true,
+				})
+				core.damage(entity, {
+					damage = (entity.health_cap // 100) * (t - 40) // 4,
+					element = "fire",
+					real = true,
+				})
+			end
+
+			return true
+		end
+	}}
 }
 
 local function ember_damage(entity, ...)
@@ -101,10 +113,11 @@ local skill_move = {
 	enable = true,
 	cost = 10,
 	step = 2,
+	power_req = 80,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
-		self.enable = core.skill_update(self, tick) and not entity.moved
+		self.enable = core.skill_update(self) and not entity.moved
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
@@ -129,6 +142,7 @@ local skill_attack = {
 	remain = 0,
 	enable = true,
 	cost = 40,
+	power_req = 120,
 
 	update = core.skill_update,
 	use = function(self, direction)
@@ -158,6 +172,7 @@ local skill_charge = {
 	enable = true,
 	cost = 300,
 	range = {2, 5},
+	power_req = 120,
 
 	update = core.skill_update,
 	use = function(self, direction, distance)
@@ -196,9 +211,9 @@ local skill_ignition = {
 	cost = 200,
 	range = { 1, 4 },
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
-		self.enable = core.skill_update(self, tick) and (entity.inventory[2].remain == 0)
+		self.enable = core.skill_update(self) and (entity.inventory[2].remain == 0)
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -240,6 +255,7 @@ local skill_sweep = {
 	remain = 0,
 	enable = true,
 	cost = 200,
+	power_req = 120,
 
 	update = core.skill_update,
 	use = function(self, direction)
@@ -270,9 +286,9 @@ local skill_nirvana = {
 	enable = false,
 	cost = 0,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
-		self.enable = core.skill_update(self, tick) and (entity.health / entity.health_cap < 0.2)
+		self.enable = core.skill_update(self) and (entity.health / entity.health_cap < 0.2)
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -296,9 +312,9 @@ local skill_phoenix = {
 	enable = true,
 	cost = 800,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
-		self.enable = core.skill_update(self, tick) and (entity.inventory[2].remain == 0)
+		self.enable = core.skill_update(self) and (entity.inventory[2].remain == 0)
 	end,
 	use = function(self, direction, distance)
 		local entity = self.owner
@@ -355,6 +371,8 @@ return function()
 		skill_sweep,
 		skill_nirvana,
 		skill_phoenix,
+	}, {
+		buff_curse,
 	})
 	table.insert(chiyu.inventory, {
 		name = "ember",
@@ -368,8 +386,6 @@ return function()
 		remain = 0,
 		tick = core.common_tick,
 	})
-
-	buff.insert(chiyu, buff_curse)
 
 	return chiyu
 end

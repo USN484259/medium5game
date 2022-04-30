@@ -16,7 +16,6 @@ local function effect_tick(f)
 	return true
 end
 
-
 local function flame(duration, damage)
 	return {
 		name = "flame",
@@ -25,7 +24,7 @@ local function flame(duration, damage)
 		damage = damage,
 		apply = function(self, entity)
 			if entity.team ~= self.team then
-				buff(entity, "burn", 1, self.damage)
+				buff.effect_insert(entity, "burn", 1, self.damage)
 			end
 
 			return true
@@ -43,6 +42,11 @@ local function wind(direction, duration)
 		priority = 1,
 		duration = duration,
 		direction = direction,
+		apply = function(self, entity)
+			if entity.team == self.team then
+				buff.effect_insert(entity, "cooling")
+			end
+		end,
 		contact = function(self, obj)
 			obj.pos = hexagon.direction(obj.pos, self.direction)
 			return obj
@@ -60,9 +64,9 @@ local function storm(center, range, duration)
 		range = range,
 		apply = function(self, entity)
 			if entity.team ~= self.team then
-				buff(entity, "turbulence", 200)
+				buff.effect_insert(entity, "turbulence", 200)
 			else
-				buff(entity, "cooling")
+				buff.effect_insert(entity, "cooling")
 			end
 
 			return true
@@ -86,8 +90,8 @@ local function blackhole(duration, strength)
 		strength = strength,
 		apply = function(self, entity)
 			if entity.team ~= self.team then
-				buff(entity, "blackhole", self.strength)
-				buff(entity, "block", 1)
+				buff.effect_insert(entity, "blackhole", self.strength)
+				buff.effect_insert(entity, "block", strength * 50, 1)
 			end
 
 			return true
@@ -102,11 +106,30 @@ local function blackhole(duration, strength)
 	}
 end
 
+local function downpour(duration)
+	return {
+		name = "downpour",
+		priority = 1,
+		duration = duration,
+		apply = function(self, entity)
+			buff.effect_insert(entity, "bubble", self.team, 100, 2)
+		end,
+		contact = function(self, obj)
+			if obj.element == "fire" and obj.team ~= self.team then
+				return nil
+			else
+				return obj
+			end
+		end,
+	}
+end
+
 local list = {
 	flame = flame,
 	wind = wind,
 	storm = storm,
 	blackhole = blackhole,
+	downpour = downpour,
 }
 
 return function(name, ...)

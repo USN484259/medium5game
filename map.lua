@@ -107,9 +107,12 @@ local function spawn(self, team, name, pos)
 	return obj
 end
 
-local function remove(self, obj)
+local function kill(self, obj)
 	for k, v in pairs(self.entities) do
 		if v == obj then
+			if obj.death then
+				obj:death()
+			end
 			table.remove(self.entities, k)
 			return true
 		end
@@ -175,6 +178,7 @@ local function tick(self, tid)
 
 		e.status = {}
 		e.hook = {}
+		e.immune = {}
 
 		for k, v in pairs(e.template) do
 			e[k] = v
@@ -185,7 +189,7 @@ local function tick(self, tid)
 
 	for k, e in pairs(team) do
 		if not e:alive() then
-			self:remove(e)
+			self:kill(e)
 		elseif e.tick then
 			e:tick()
 		end
@@ -227,7 +231,7 @@ return function(scale, layer_list)
 		effect = effect,
 		contact = contact,
 		spawn = spawn,
-		remove = remove,
+		kill = kill,
 		run = run,
 	}
 

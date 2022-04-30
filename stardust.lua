@@ -3,36 +3,39 @@ local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
-local buff_stars_charge = {
-	name = "stars_charge",
-	priority = core.priority.stat,
+local function buff_stars_charge(charge)
+	return {
+		name = "stars_charge",
 
-	initial = function(self, charge)
-		local entity = self.owner
-		local p = buff.remove(entity, "stars_charge")
-		if p then
-			local val = p.charge + charge / 2
-			core.damage(entity, {
-				damage = val,
-				element = "star",
-			})
+		initial = function(self)
+			local entity = self.owner
+			local p = buff.remove(entity, "stars_charge")
+			if p then
+				local val = p.charge + charge / 2
+				core.damage(entity, {
+					damage = val,
+					element = "star",
+				})
 
-			return false
-		end
+				return false
+			end
 
-		self.charge = charge
-		return charge > 0
-	end,
+			self.charge = charge
+			return charge > 0
+		end,
 
-	tick = function(self)
-		if self.charge <= 100 then
-			return false
-		end
+		tick = {{
+			core.priority.stat, function(self)
+				if self.charge <= 100 then
+					return false
+				end
 
-		self.charge = self.charge - 100
-		return true
-	end
-}
+				self.charge = self.charge - 100
+				return true
+			end
+		}}
+	}
+end
 
 local template = {
 	health_cap = 800,
@@ -76,84 +79,62 @@ local template = {
 
 local buff_stars_energy = {
 	name = "stars_energy",
-	priority = core.priority.stat,
-	tick = function(self)
-		local entity = self.owner
-		local val = entity.map:layer("stars_energy", entity.pos)
-		entity.generator = val
-
-		return true
-	end,
+	tick = {{
+		core.priority.pre_stat, function(self)
+			local entity = self.owner
+			if not entity.status.down then
+				local val = entity.map:layer("stars_energy", entity.pos)
+				entity.generator = val
+			end
+			return true
+		end
+	}},
 	defer = function(self)
 		local entity = self.owner
-		if entity.status.down then
-			return
-		end
-
-		local energy = entity.energy
-		for i = 1, #entity.inventory, 1 do
-			local item = entity.inventory[i]
-			if not item.active then
-				local need = item.energy_cap - item.energy
-				if energy > need then
-					energy = energy - need
-					item.energy = item.energy_cap
-				else
-					item.energy = item.energy + energy
-					energy = 0
-					break
-				end
-			end
-		end
---[[
-		while energy > 0 do
-			local count = 0
-			local min_need = energy
+		if not entity.status.down then
+			local energy = entity.energy
 			for i = 1, #entity.inventory, 1 do
 				local item = entity.inventory[i]
-				local need = item.energy_cap - item.energy
-				if need > 0 and not item.active then
-					count = count + 1
-					min_need = math.min(need, min_need)
-				end
-			end
-			if count == 0 then
-				break
-			end
-
-			min_need = math.min(min_need, math.ceil(energy / count))
-
-			for i = 1, #entity.inventory, 1 do
-				local item = entity.inventory[i]
-				if item.energy < item.energy_cap and not item.active then
-					local val = math.min(energy, min_need, item.energy_cap - item.energy)
-					item.energy = item.energy + val
-					energy = energy - val
+				if not item.active then
+					local need = item.energy_cap - item.energy
+					if energy > need then
+						energy = energy - need
+						item.energy = item.energy_cap
+					else
+						item.energy = item.energy + energy
+						energy = 0
+						break
+					end
 				end
 			end
 		end
---]]
 		entity.energy = 0
 	end,
 }
 
 local buff_hover = {
 	name = "hover",
-	priority = core.priority.post_stat,
 	cost = 40,
-	tick = function(self)
-		local entity = self.owner
-		if entity.generator < self.cost then
-			entity.hover = false
-		end
+	power = 80,
+	tick = {{
+		core.priority.fly, function(self)
+			local entity = self.owner
+			if entity.status.down or entity.generator < self.cost then
+				entity.hover = false
+			end
 
-		if entity.hover then
-			entity.generator = entity.generator - self.cost
-			entity.status.fly = true
-		end
+			if entity.power < self.power then
+				entity.hover = false
+			end
 
-		return true
-	end,
+			if entity.hover then
+				entity.generator = entity.generator - self.cost
+				entity.status.fly = true
+			end
+
+			return true
+		end,
+	}}
 }
 
 local skill_move = {
@@ -164,8 +145,9 @@ local skill_move = {
 	enable = true,
 	cost = 0,
 	step = 1,
+	power_req = 80,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		if entity.hover then
 			self.cost = 10
@@ -175,7 +157,7 @@ local skill_move = {
 			self.step = 1
 		end
 
-		self.enable = core.skill_update(self, tick) and not entity.moved
+		self.enable = core.skill_update(self) and not entity.moved
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
@@ -201,8 +183,9 @@ local skill_attack = {
 	enable = true,
 	cost = 0,
 	range = 5,
+	power_req = 80,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local has_lance = false
 		for i = 1, 2, 1 do
@@ -211,7 +194,7 @@ local skill_attack = {
 				has_lance = true
 			end
 		end
-		self.enable = core.skill_update(self, tick) and has_lance
+		self.enable = core.skill_update(self) and has_lance
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -244,15 +227,16 @@ local skill_hover = {
 	remain = 0,
 	enable = true,
 	cost = 40,
+	power_req = 40,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		if entity.hover then
 			self.cost = 0
 		else
 			self.cost = 40
 		end
-		self.enable = core.skill_update(self, tick) and not entity.moved
+		self.enable = core.skill_update(self) and not entity.moved
 	end,
 	use = function(self)
 		local entity = self.owner
@@ -275,8 +259,9 @@ local skill_teleport = {
 	remain = 0,
 	enable = true,
 	cost = 0,
+	power_req = 20,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local mirror = entity.inventory[3]
 		local active = false
@@ -289,7 +274,7 @@ local skill_teleport = {
 			active = (mirror.energy == mirror.energy_cap)
 		end
 
-		self.enable = core.skill_update(self, tick) and active
+		self.enable = core.skill_update(self) and active
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -347,13 +332,13 @@ local skill_blackhole = {
 	enable = true,
 	cost = 0,
 	range = 6,
-	-- duration = 2,
+	power_req = 20,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local mirror = entity.inventory[3]
 
-		self.enable = core.skill_update(self, tick) and (mirror.energy == mirror.energy_cap)
+		self.enable = core.skill_update(self) and (mirror.energy == mirror.energy_cap)
 	end,
 	use = function(self, target)
 		local entity = self.owner
@@ -379,12 +364,13 @@ local skill_lazer = {
 	remain = 0,
 	enable = true,
 	cost = 0,
+	power_req = 100,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local prism = entity.inventory[4]
 
-		self.enable = core.skill_update(self, tick) and (prism.energy >= prism.energy_cap // 2)
+		self.enable = core.skill_update(self) and (prism.energy >= prism.energy_cap // 2)
 	end,
 	use = function(self, direction)
 		local entity = self.owner
@@ -408,8 +394,9 @@ local skill_starfall = {
 	remain = 0,
 	enable = true,
 	cost = 0,
+	power_req = 80,
 
-	update = function(self, tick)
+	update = function(self)
 		local entity = self.owner
 		local has_lance = false
 		for i = 1, 2, 1 do
@@ -418,7 +405,7 @@ local skill_starfall = {
 				has_lance = true
 			end
 		end
-		self.enable = core.skill_update(self, tick) and has_lance
+		self.enable = core.skill_update(self) and has_lance
 
 	end,
 	use = function(self, target)
@@ -465,6 +452,9 @@ return function()
 		skill_blackhole,
 		skill_lazer,
 		skill_starfall,
+	}, {
+		buff_stars_energy,
+		buff_hover,
 	})
 
 	stardust.hover = false
@@ -501,8 +491,6 @@ return function()
 		end,
 	})
 
-	buff.insert(stardust, buff_stars_energy)
-	buff.insert(stardust, buff_hover)
 
 	return stardust
 end

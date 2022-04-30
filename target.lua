@@ -4,24 +4,24 @@ local buff = require("buff")
 
 local template = {
 	health_cap = 1000,
-	resistance = {
-
-	},
+	resistance = {},
 }
 
 local buff_attack = {
 	name = "attack",
-	priority = core.priority.last,
-	tick = function(self)
-		local entity = self.owner
-		local area = hexagon.range(entity.pos, 1)
-		entity.map:damage(entity.team, area, {
-			damage = 100,
-			element = "physical",
-			accuracy = 6,
-		})
-		return true
-	end,
+
+	tick = {{
+		core.priority.damage, function(self)
+			local entity = self.owner
+			local area = hexagon.adjacent(entity.pos)
+			entity.map:damage(entity.team, area, {
+				damage = 100,
+				element = "physical",
+				accuracy = 6,
+			})
+			return true
+		end,
+	}}
 }
 
 return function()
