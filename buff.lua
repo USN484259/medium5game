@@ -15,13 +15,14 @@ local function buff_remove(entity, tar)
 	for i = 1, #entity.buff, 1 do
 		local b = entity.buff[i]
 		if (type(tar) == "string" and b.name == tar) or (tar == b) then
+			b.removed = true
 			table.remove(entity.buff, k)
 			return b
 		end
 	end
 end
 
-local function buff_insert(from, entity, name, ...)
+local function buff_insert(initial_tick, entity, name, ...)
 	local b
 	if type(name) == "string" then
 		b = list[name](...)
@@ -35,14 +36,16 @@ local function buff_insert(from, entity, name, ...)
 
 	b.owner = entity
 
-	if b.initial and not b:initial(from) then
+	if b.initial and not b:initial() then
 		return
 	end
 
-	for i = 1, #b.tick, 1 do
-		local f = b.tick[i]
-		if f[1] < core.priority.damage and not f[2](b) then
-			return
+	if initial_tick then
+		for i = 1, #b.tick, 1 do
+			local f = b.tick[i]
+			if f[1] < core.priority.damage and not f[2](b) then
+				return
+			end
 		end
 	end
 
@@ -58,12 +61,14 @@ local function buff_tick(team)
 			local b = e.buff[i]
 			if core.common_tick(b) then
 				table.insert(new_buff, b)
-				for k, v in pairs(b.tick) do
-					table.insert(queue, {
-						buff = b,
-						priority = v[1],
-						func = v[2],
-					})
+				if b.tick then
+					for k, v in pairs(b.tick) do
+						table.insert(queue, {
+							buff = b,
+							priority = v[1],
+							func = v[2],
+						})
+					end
 				end
 			end
 		end
@@ -86,12 +91,20 @@ local function buff_tick(team)
 end
 
 local function buff_defer(team)
+	local queue = {}
 	for k, e in pairs(team) do
 		for k, b in pairs(e.buff) do
 			if b.defer then
-				b:defer()
+				table.insert(queue, b)
 			end
 		end
+	end
+	table.sort(queue, function(a, b)
+		return a.defer[1] < b.defer[1]
+	end)
+	for i = 1, #queue, 1 do
+		local b = queue[i]
+		b.defer[2](b)
 	end
 end
 local function fly(power)
@@ -169,13 +182,10 @@ local function drown()
 		tick = {{
 			core.priority.drown, function(self)
 				local entity = self.owner
-				local w = entity.map:layer("waters", entity.pos)
-				if not w or w < 1000 then
-					return true
-				end
+				local w = entity.map:layer_get("water", entity.pos)
 
 				if entity.status.fly or entity.immune.drown then
-					return true
+					return false
 				end
 
 				entity.status.drown = true
@@ -197,7 +207,7 @@ local function drown()
 					real = true,
 				})
 
-				return true
+				return false
 			end,
 		}}
 	}
@@ -207,7 +217,7 @@ local function burn(duration, damage)
 	return {
 		name = "burn",
 		duration = duration,
-		damage = damage or 40,
+		damage = damage,
 
 		tick = {{
 			core.priority.post_stat, function(self)
@@ -252,51 +262,51 @@ local function wet(duration)
 end
 
 local function bubble(team, strength, duration)
+	local tick_table = {
+		[true] = {{
+			core.priority.pre_stat, function(self)
+				local entity = self.owner
+				entity.status.wet = true
+
+				if self.strength == 0 then
+					return false
+				end
+				entity.immune.drown = true
+				entity.status.bubble = self.strength
+				core.hook(entity, {
+					name = "bubble",
+					src = self,
+					priority = core.priority.bubble,
+					func = function(self, entity, damage)
+						local b = self.src
+						b.strength, damage = core.shield(damage, b.strength, 1 / 2)
+						return damage
+					end
+				})
+				return true
+			end,
+		}},
+
+		[false] = {{
+			core.priority.pre_stat, function(self)
+				local entity = self.owner
+				entity.status.wet = true
+				entity.status.bubble = self.strength
+				return true
+			end,
+		}, {
+			core.priority.block, function(self)
+				local entity = self.owner
+				block_tick(entity, 2 * self.strength)
+				return true
+			end,
+		}},
+	}
+
 	return {
 		name = "bubble",
 		strength = strength,
 		duration = duration,
-
-		tick_table = {
-			[true] = {{
-				core.priority.pre_stat, function(self)
-					local entity = self.owner
-					entity.status.wet = true
-
-					if self.strength == 0 then
-						return false
-					end
-					entity.immune.drown = true
-					entity.status.bubble = self.strength
-					core.hook(entity, {
-						name = "bubble",
-						src = self,
-						priority = core.priority.bubble,
-						func = function(self, entity, damage)
-							local b = self.src
-							b.strength, damage = core.shield(damage, b.strength, 1 / 2)
-							return damage
-						end
-					})
-					return true
-				end,
-			}},
-
-			[false] = {{
-				core.priority.pre_stat, function(self)
-					local entity = self.owner
-					entity.status.wet = true
-					entity.status.bubble = self.strength
-					return true
-				end,
-			}, {
-				core.priority.block, function(self)
-					local entity = self.owner
-					block_tick(entity, 2 * self.strength)
-					return true
-				end,
-			}},
-		},
 
 		initial = function(self)
 			local entity = self.owner
@@ -311,7 +321,7 @@ local function bubble(team, strength, duration)
 				return false
 			end
 
-			self.tick = self.tick_table[entity.team == team]
+			self.tick = tick_table[entity.team == team]
 
 			return true
 		end,
@@ -319,24 +329,50 @@ local function bubble(team, strength, duration)
 
 end
 
-local function cooling()
-	return {
-		name = "cooling",
-
-		tick = {{
+local function storm(team, power)
+	local tick_table = {
+		[true] = {{
 			core.priority.stat, function(self)
 				local entity = self.owner
-				entity.status.cooling = true
+				entity.speed = entity.speed + 2
+				entity.accuracy = entity.accuracy + 2
 				return false
 			end,
-		}}
-	}
-end
+		}},
+		[false] = {{
+			core.priority.block, function(self)
+				local entity = self.owner
+				block_tick(entity, self.strength)
+				entity.accuracy = math.min(0, entity.accuracy - 3)
+				return true
+			end,
+		}, {
+			core.priority.damage, function(self)
+				local entity = self.owner
+				core.damage(entity, {
+					damage = self.power / 4,
+					element = "air",
+				})
 
-local function turbulence(damage)
+				core.damage(entity, {
+					damage = self.power,
+					element = "air",
+					type = "air",
+				})
+				return false
+			end,
+		}},
+	}
+
 	return {
-		name = "turbulence",
-		damage = damage,
+		name = "storm",
+		power = power,
+
+		initial = function(self)
+			local entity = self.owner
+
+			self.tick = tick_table[entity.team == team]
+		end,
 
 		tick = {{
 			core.priority.damage, function(self)
@@ -351,22 +387,45 @@ local function turbulence(damage)
 	}
 end
 
-local function blackhole(strength)
-	return {
-		name = "blackhole",
-		strength = strength,
-
-		tick = {{
+local function blackhole(team, power)
+	local tick_table = {
+		[true] = {{
+			core.priority.stat, function(self)
+				local entity = self.owner
+				entity.speed = entity.speed + 1
+				entity.accuracy = entity.accuracy + 1
+				return true
+			end,
+		}},
+		[false] = {{
+			core.priority.block, function(self)
+				local entity = self.owner
+				block_tick(entity, self.power // 4)
+				return true
+			end,
+		}, {
 			core.priority.damage, function(self)
 				local entity = self.owner
 				local cap = entity.health_cap
 				core.damage(entity, {
-					damage = math.max(self.strength * 5, cap * self.strength / 100),
+					damage = math.max(self.power // 16, cap * self.strength / 2048),
 					element = "physical",
 				})
 				return false
 			end,
-		}}
+		}},
+	}
+
+	return {
+		name = "blackhole",
+		power = power,
+
+		initial = function(self)
+			local entity = self.owner
+
+			self.tick = tick_table[entity.team == team]
+		end,
+
 	}
 end
 
@@ -378,18 +437,17 @@ list = {
 	burn = burn,
 	wet = wet,
 	bubble = bubble,
-	cooling = cooling,
-	turbulence = turbulence,
+	storm = storm,
 	blackhole = blackhole,
 }
 
 
 return {
 	insert = function(...)
-		return buff_insert("skill", ...)
+		return buff_insert(true, ...)
 	end,
-	effect_insert = function(...)
-		return buff_insert("effect", ...)
+	insert_notick = function(...)
+		return buff_insert(false, ...)
 	end,
 	get = buff_get,
 	remove = buff_remove,

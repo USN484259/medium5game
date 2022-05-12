@@ -22,6 +22,7 @@ local function bubble_trigger(entity, buff_name, ...)
 end
 
 local template = {
+	element = "water",
 	health_cap = 900,
 	speed = 5,
 	accuracy = 8,
@@ -37,7 +38,7 @@ local template = {
 		water = 0.8,
 		air = 0.2,
 		earth = 0.1,
-		star = 0,
+		ether = 0,
 		mental = 0.3,
 	},
 	immune = {
@@ -65,7 +66,6 @@ local template = {
 			}, buff.insert, "bubble", entity.team, entity.power, 2)
 		end,
 	},
-	layer = "waters",
 }
 
 local buff_strengthen = {
@@ -132,7 +132,7 @@ local buff_downpour = {
 }
 
 local function in_water(entity)
-	local water = entity.map:layer("waters", entity.pos)
+	local water = entity.map:layer_get("water", entity.pos)
 	return water and water > swim_depth
 end
 
@@ -144,12 +144,13 @@ local function check_water(skill)
 
 	local area = hexagon.range(entity.pos, 1)
 	for k, p in pairs(area) do
-		ground_water = ground_water + (entity.map:layer("waters", p) or 0)
+		ground_water = ground_water + (entity.map:layer_get("water", p) or 0)
 	end
 	return stored_water + ground_water >= req
 end
 
 local function consume_water(skill)
+	-- error "REVIEW"
 	local entity = skill.owner
 	local req = skill.water_cost
 	local ground_water = true
@@ -165,29 +166,29 @@ local function consume_water(skill)
 		local count = 0
 		local ring = hexagon.adjacent(entity.pos, 1)
 		for k, p in pairs(ring) do
-			local val = entity.map:layer("waters", p)
+			local val = entity.map:layer_get("water", p)
 			if val and val > 0 then
 				count = count + 1
 			end
 		end
 
 		local unit
-		local val = entity.map:layer("waters", entity.pos)
+		local val = entity.map:layer_get("water", entity.pos)
 		if val and val > 0 then
 			unit = math.ceil(req / (count + 3))
-			req = req - entity.map:layer("waters", entity.pos, - math.min(req, 3 * unit))
+			req = req - entity.map:layer_set("water", "depth", entity.pos, - math.min(req, 3 * unit))
 			ground_water = true
 		else
 			unit = math.ceil(req / count)
 		end
 
-		print("comsume_water " .. req .. '\t' .. unit)
+		-- print("comsume_water " .. req .. '\t' .. unit)
 
 		for k, p in pairs(ring) do
 			if req <= 0 then
 				break
 			end
-			req = req - (entity.map:layer("waters", p, -unit) or 0)
+			req = req - (entity.map:layer_set("water", "depth", p, -unit) or 0)
 			ground_water = true
 		end
 	end
@@ -196,13 +197,13 @@ end
 local function water_area(entity, range, threshold, shore)
 	threshold = threshold or 0
 	return hexagon.connected(entity.pos, range, function(a, b)
-		local w_a = entity.map:layer("waters", a)
+		local w_a = entity.map:layer_get("water", a)
 		if w_a and w_a >= threshold then
 			if shore then
 				return true
 			end
 
-			local w_b = entity.map:layer("waters", b)
+			local w_b = entity.map:layer_get("water", b)
 			return w_b and w_b >= threshold
 		end
 	end)
@@ -240,16 +241,17 @@ local function new_bubble()
 	bubble.ttl = 4
 	buff.insert(bubble, {
 		name = "bubble_entity",
-		priority = core.priority.damage,
-		tick = function(self)
-			local entity = self.owner
-			if entity.ttl > 0 then
-				entity.ttl = entity.ttl - 1
-			else
-				entity.map:kill(entity)
-			end
-			return true
-		end,
+		tick = {{
+			core.priority.damage, function(self)
+				local entity = self.owner
+				if entity.ttl > 0 then
+					entity.ttl = entity.ttl - 1
+				else
+					entity.map:kill(entity)
+				end
+				return true
+			end,
+		}}
 	})
 	return bubble
 end
@@ -500,12 +502,12 @@ local skill_downpour = {
 	use = function(self)
 		local entity = self.owner
 		local area = hexagon.range(entity.pos, self.range)
-		entity.map:effect(entity.team, area, "downpour", downpour_duration)
+		entity.map:layer_set("water", "downpour", entity.team, area, downpour_duration, entity.power)
 		consume_water(self)
 		buff.insert(entity, buff_downpour)
 
 		for k, p in pairs(area) do
-			entity.map:layer("waters", p, 10)
+			entity.map:layer_set("water", "depth", p, 10)
 		end
 
 		return true
@@ -520,8 +522,6 @@ return function()
 		skill_bubble,
 		skill_revive,
 		skill_downpour,
-	}, {
-		buff_strengthen,
 	})
 
 	table.insert(haiyi.inventory, {
@@ -542,13 +542,15 @@ return function()
 				return
 			end
 			local req = math.min(self.water_cap // 8, self.water_cap - self.water)
-			local val = entity.map:layer("waters", entity.pos, req)
+			local val = entity.map:layer_set("water", "depth", entity.pos, -req)
 			if val then
 				core.log(self.name .. " absorb " .. val .. " water")
 				self.water = self.water + val
 			end
 		end,
 	})
+
+	buff.insert_notick(haiyi, buff_strengthen)
 
 	return haiyi
 end

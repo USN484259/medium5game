@@ -4,6 +4,7 @@ local core = require("core")
 local buff = require("buff")
 
 local template = {
+	element = "fire",
 	health_cap = 700,
 	speed = 7,
 	accuracy = 9,
@@ -18,7 +19,7 @@ local template = {
 		water = -0.2,
 		air = 0,
 		earth = 0.2,
-		star = 0,
+		ether = 0,
 		mental = 0.4,
 	},
 	immune = {
@@ -40,7 +41,7 @@ local template = {
 				element = "fire",
 			})
 
-			entity.map:effect(entity.team, area, "flame", 1)
+			entity.map:layer_set("fire", entity.team, area, 1, 40)
 		end,
 	},
 }
@@ -51,10 +52,8 @@ local buff_curse = {
 		core.priority.post_stat, function(self)
 			local entity = self.owner
 			local t = entity.inventory[1].temperature
-			local cooling = 4
-			if entity.status.cooling then
-				cooling = cooling + 2
-			end
+			local cooling = 4 + entity.map:layer_get("air", entity.pos)
+
 			if entity.status.wet then
 				cooling = cooling * 2
 				entity.power = entity.power * 0.8
@@ -238,7 +237,7 @@ local skill_ignition = {
 				damage = seed.power,
 				element = "fire",
 			}, buff.insert, "burn", 1)
-			entity.map:effect(entity.team, area, "flame", 1)
+			entity.map:layer_set("fire", entity.team, area, 1, 40)
 		end
 
 		local feather = entity.inventory[2]
@@ -297,7 +296,7 @@ local skill_nirvana = {
 
 		local res = core.teleport(entity, target)
 		if res then
-			entity.map:effect(entity.team, area, "flame", 0)
+			entity.map:layer_set("fire", entity.team, area, 0, 100)
 		end
 
 		return res
@@ -352,7 +351,7 @@ local skill_phoenix = {
 			}, buff.insert, "down", 2)
 
 			local area = util.append_table(main, sides)
-			entity.map:effect(entity.team, area, "flame", 2)
+			entity.map:layer_set("fire", entity.team, area, 2, 60)
 
 			local feather = entity.inventory[2]
 			feather.remain = feather.cooldown
@@ -371,8 +370,6 @@ return function()
 		skill_sweep,
 		skill_nirvana,
 		skill_phoenix,
-	}, {
-		buff_curse,
 	})
 	table.insert(chiyu.inventory, {
 		name = "ember",
@@ -386,6 +383,8 @@ return function()
 		remain = 0,
 		tick = core.common_tick,
 	})
+
+	buff.insert_notick(chiyu, buff_curse)
 
 	return chiyu
 end

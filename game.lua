@@ -4,6 +4,50 @@ local util = require("util")
 local core = require("core")
 local hexagon = require("hexagon")
 
+local function show_layer(map, layer)
+	local layer_dump = {
+		ether = function(layer)
+			for k, v in pairs(layer.source) do
+				print(hexagon.print(v.pos), "ether " .. v.energy)
+			end
+
+			for k, v in pairs(layer.blackhole) do
+				print(hexagon.print(v.pos), "blackhole\tteam " .. v.team)
+			end
+		end,
+		air = function(layer)
+			for k, v in pairs(layer.wind) do
+				print(hexagon.print(v.pos), "wind\tdirection " .. v.direction)
+			end
+
+			for k, v in pairs(layer.storm) do
+				print(hexagon.print(v.center), "storm\tteam " .. v.team .. "\trange " .. v.range)
+			end
+		end,
+		fire = function(layer)
+			for k, v in pairs(layer.fire) do
+				print(hexagon.print(v.pos), "fire\tteam " .. v.team)
+			end
+		end,
+		water = function(layer)
+			for k, v in pairs(layer.depth) do
+				print(hexagon.print(v.pos), "water " .. v.depth)
+			end
+
+			for k, v in pairs(layer.downpour) do
+				print(hexagon.print(v.pos), "downpour\tteam ", v.team)
+			end
+		end,
+	}
+
+	local l = map.layer_map[layer]
+	if not l then
+		return
+	end
+	print("--------" .. "layer " .. layer .. "--------")
+	layer_dump[layer](l:get())
+end
+
 local function show_map(map, tid)
 	print("--------map--------")
 	local team = {}
@@ -28,25 +72,8 @@ local function show_map(map, tid)
 	return team
 end
 
-local function show_layer(map, layer)
-	print("--------" .. layer .. "--------")
-	local list = map.layers[layer]:dump()
-
-	for k, v in pairs(list) do
-		local str = hexagon.print(v.pos)
-		for k, e in pairs(v) do
-			if k ~= "pos" and type(e) ~= "table" and type(e) ~= "function" then
-				str = str .. '\t' .. k .. ' ' .. e
-			end
-		end
-		print(str)
-	end
-end
-
 local function action_menu(entity)
-	if entity.layer then
-		show_layer(entity.map, entity.layer)
-	end
+	show_layer(entity.map, entity.element)
 	print("--------character--------")
 	local str = entity.name .. " " .. hexagon.print(entity.pos) .. "\tHP " .. entity.health .. '/' .. entity.health_cap .. "\tMP " .. entity.energy .. '/' .. entity.energy_cap .. "\tsanity " .. entity.sanity
 	for k, v in pairs(entity.status) do
@@ -95,7 +122,11 @@ local function action_menu(entity)
 		local sk = entity.skills[i]
 		sk:update()
 
-		local str = tostring(i) .. '\t' .. sk.name .. "\t" .. sk.type .. "\tCD " .. sk.remain .. '/' .. sk.cooldown .. "\tMP " .. (sk.cost) .. '\t'
+		local str = tostring(i) .. '\t' .. sk.name .. "\t" .. sk.type
+		if sk.type == "multitarget" then
+			str = str .. '(' .. sk.shots .. ')'
+		end
+		str = str .. "\tCD " .. sk.remain .. '/' .. sk.cooldown .. "\tMP " .. (sk.cost) .. '\t'
 		if sk.enable then
 			str = str .. "enabled"
 		else
@@ -181,8 +212,11 @@ local function main()
 	util.random_setup("lcg")
 
 	local map = require("map")(map_scale, {
-		"stars_energy",
-		"waters",
+		"ether",
+		"air",
+		"fire",
+		"water",
+		-- "earth",
 	})
 	local player_team = map:new_team(player_control)
 

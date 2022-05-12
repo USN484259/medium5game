@@ -3,18 +3,18 @@ local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
-local function buff_stars_charge(charge)
+local function buff_ether_charge(charge)
 	return {
-		name = "stars_charge",
+		name = "ether_charge",
 
 		initial = function(self)
 			local entity = self.owner
-			local p = buff.remove(entity, "stars_charge")
+			local p = buff.remove(entity, "ether_charge")
 			if p then
 				local val = p.charge + charge / 2
 				core.damage(entity, {
 					damage = val,
-					element = "star",
+					element = "ether",
 				})
 
 				return false
@@ -38,6 +38,7 @@ local function buff_stars_charge(charge)
 end
 
 local template = {
+	element = "ether",
 	health_cap = 800,
 	speed = 6,
 	accuracy = 8,
@@ -53,63 +54,64 @@ local template = {
 		water = 0.2,
 		air = 0.2,
 		earth = 0.2,
-		star = -0.2,
+		ether = -0.2,
 		mental = 0.4,
 	},
 	quiver = {
-		name = "star",
+		name = "ether",
 		cost = 40,
 		single = function(entity, target)
 			entity.map:damage(entity.team, { target }, {
 				damage = 100,
-				element = "star",
-			}, buff.insert, buff_stars_charge, 0)
+				element = "ether",
+			}, buff.insert, buff_ether_charge, 0)
 		end,
 
 		area = function(entity, area)
 			entity.map:damage(entity.team, area, {
 				damage = 200,
-				element = "star",
-			}, buff.insert, buff_stars_charge, 200)
+				element = "ether",
+			}, buff.insert, buff_ether_charge, 200)
 		end,
 
 	},
-	layer = "stars_energy",
 }
 
-local buff_stars_energy = {
-	name = "stars_energy",
+local buff_ether_energy = {
+	name = "ether_energy",
 	tick = {{
 		core.priority.pre_stat, function(self)
 			local entity = self.owner
 			if not entity.status.down then
-				local val = entity.map:layer("stars_energy", entity.pos)
+				local val = entity.map:layer_get("ether", entity.pos)
 				entity.generator = val
 			end
 			return true
 		end
 	}},
-	defer = function(self)
-		local entity = self.owner
-		if not entity.status.down then
-			local energy = entity.energy
-			for i = 1, #entity.inventory, 1 do
-				local item = entity.inventory[i]
-				if not item.active then
-					local need = item.energy_cap - item.energy
-					if energy > need then
-						energy = energy - need
-						item.energy = item.energy_cap
-					else
-						item.energy = item.energy + energy
-						energy = 0
-						break
+	defer = {
+		core.priority.stat, function(self)
+			local entity = self.owner
+			if not entity.status.down then
+				local energy = entity.energy
+				for i = 1, #entity.inventory, 1 do
+					local item = entity.inventory[i]
+					if not item.active then
+						local need = item.energy_cap - item.energy
+						if energy > need then
+							energy = energy - need
+							item.energy = item.energy_cap
+						else
+							item.energy = item.energy + energy
+							energy = 0
+							break
+						end
 					end
 				end
 			end
-		end
-		entity.energy = 0
-	end,
+			entity.energy = 0
+		end,
+	}
 }
 
 local buff_hover = {
@@ -206,7 +208,7 @@ local skill_attack = {
 			damage = entity.power,
 			element = "physical",
 			accuracy = entity.accuracy,
-		}, buff.insert, buff_stars_charge, entity.power)
+		}, buff.insert, buff_ether_charge, entity.power)
 
 		for i = 1, 2, 1 do
 			local item = entity.inventory[i]
@@ -348,7 +350,7 @@ local skill_blackhole = {
 		end
 
 		local area = hexagon.range(target, 1)
-		entity.map:effect(entity.team, area, "blackhole", blackhole_duration, 4)
+		entity.map:layer_set("ether", "blackhole", entity.team, area, blackhole_duration, entity.power)
 
 		mirror.energy = mirror.energy_cap // 4
 		mirror.active = blackhole_duration
@@ -379,8 +381,8 @@ local skill_lazer = {
 		local area = hexagon.fan(entity.pos, 2 * (entity.map.scale + 1), direction, direction)
 		entity.map:damage(entity.team, area, {
 			damage = prism.energy / 2,
-			element = "star",
-		}, buff.insert, buff_stars_charge, prism.energy / 4)
+			element = "ether",
+		}, buff.insert, buff_ether_charge, prism.energy / 4)
 
 		prism.energy = 0
 		return true
@@ -413,15 +415,13 @@ local skill_starfall = {
 
 		buff(entity, {
 			name = "starfall",
-			priority = core.priority.last,
 			target = target,
-			tick = function(self)
-				return false
-			end,
-			defer = function(self)
-				local entity = self.owner
-				entity.map:layer("stars_energy", target, entity.power * 4)
-			end,
+			defer = {
+				core.priority.last, function(self)
+					local entity = self.owner
+					entity.map:layer_set("ether", "detonate", self.target, entity.power * 4)
+				end,
+			}
 		})
 
 
@@ -452,9 +452,6 @@ return function()
 		skill_blackhole,
 		skill_lazer,
 		skill_starfall,
-	}, {
-		buff_stars_energy,
-		buff_hover,
 	})
 
 	stardust.hover = false
@@ -491,6 +488,8 @@ return function()
 		end,
 	})
 
+	buff.insert_notick(stardust, buff_ether_energy)
+	buff.insert_notick(stardust, buff_hover)
 
 	return stardust
 end

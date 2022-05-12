@@ -4,6 +4,7 @@ local core = require("core")
 local buff = require("buff")
 
 local template = {
+	element = "earth",
 	health_cap = 600,
 	speed = 2,
 	accuracy = 2,
@@ -17,7 +18,7 @@ local template = {
 		water = 0.4,
 		air = 0.8,
 		earth = 0.8,
-		star = 0.3,
+		ether = 0.3,
 		mental = 0.6,
 	},
 	quiver = {
@@ -77,30 +78,32 @@ local buff_shield = {
 			return true
 		end,
 	}},
-	defer = function(self)
-		local entity = self.owner
-		if entity.inventory[1]:get() ~= "shield" or entity.status.down or entity.status.ultimate then
-			return
-		end
-		local list = entity.map:get_area(hexagon.range(entity.pos, 1))
-		for k, e in pairs(list) do
-			if e.team == entity.team then
-				core.hook(e, {
-					name = "shield",
-					priority = core.priority.shield,
-					origin = entity,
-					func = function(self, entity, damage)
-						local origin = self.origin
-						local res
-						-- absorb 2 damage using 1 energy
-						res, damage = core.shield(damage, 2 * origin.energy)
-						origin.energy = res // 2
-						return damage
-					end
-				})
+	defer = {
+		core.priority.first, function(self)
+			local entity = self.owner
+			if entity.inventory[1]:get() ~= "shield" or entity.status.down or entity.status.ultimate then
+				return
 			end
-		end
-	end,
+			local list = entity.map:get_area(hexagon.range(entity.pos, 1))
+			for k, e in pairs(list) do
+				if e.team == entity.team then
+					core.hook(e, {
+						name = "shield",
+						priority = core.priority.shield,
+						origin = entity,
+						func = function(self, entity, damage)
+							local origin = self.origin
+							local res
+							-- absorb 2 damage using 1 energy
+							res, damage = core.shield(damage, 2 * origin.energy)
+							origin.energy = res // 2
+							return damage
+						end
+					})
+				end
+			end
+		end,
+	}
 }
 
 local buff_final_guard = {
@@ -358,8 +361,6 @@ return function()
 		skill_cannon,
 		skill_apple,
 		skill_final_guard,
-	}, {
-		buff_shield,
 	})
 
 	table.insert(shian.inventory, {
@@ -388,7 +389,7 @@ return function()
 		return self.health > 0 or self.status.ultimate
 	end
 
-	buff.insert(shian, buff_shield)
+	buff.insert_notick(shian, buff_shield)
 
 	return shian
 end

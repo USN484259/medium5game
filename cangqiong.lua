@@ -6,6 +6,7 @@ local buff = require("buff")
 local storm_duration = 3
 
 local template = {
+	element = "air",
 	health_cap = 1000,
 	speed = 8,
 	accuracy = 9,
@@ -21,7 +22,7 @@ local template = {
 		water = 0,
 		air = 0.2,
 		earth = 0,
-		star = 0,
+		ether = 0,
 		mental = 0,
 	},
 
@@ -196,8 +197,8 @@ local skill_wind_control = {
 			return false
 		end
 
-		local area = hexagon.fan(point, self.length - 1, direction, direction)
-		entity.map:effect(entity.team, area, "wind", direction, 2)
+		local area = hexagon.line(point, direction, self.length - 1)
+		entity.map:layer_set("air", "wind", area, direction, 2)
 		return true
 	end,
 }
@@ -248,7 +249,7 @@ local skill_storm = {
 		local entity = self.owner
 		local butterfly = entity.inventory[2]
 
-		entity.map:effect(entity.team, hexagon.range(entity.pos, self.range), "storm", entity.pos, self.range, storm_duration)
+		entity.map:layer_set("air", "storm", entity.team, entity,pos, self.range, storm_duration, entity.power)
 
 		butterfly.remain = butterfly.cooldown
 		buff.insert(entity, buff_storm)
@@ -266,8 +267,6 @@ return function()
 		skill_wind_control,
 		skill_arrow_rain,
 		skill_storm,
-	}, {
-		buff_fly,
 	})
 
 	table.insert(cangqiong.inventory, {
@@ -307,6 +306,8 @@ return function()
 		remain = 0,
 		tick = core.common_tick,
 	})
+
+	buff.insert_notick(cangqiong, "fly")
 
 	return cangqiong
 end

@@ -2,15 +2,18 @@ local util = require("util")
 local core = require("core")
 local hexagon = require("hexagon")
 local buff = require("buff")
-local fx = require("effect")
 
 local function new_team(self, ...)
 	table.insert(self.teams, table.pack(...))
 	return #self.teams
 end
 
-local function layer(self, layer, ...)
-	return self.layers[layer]:func(...)
+local function layer_get(self, layer, ...)
+	return self.layer_map[layer]:get(...)
+end
+
+local function layer_set(self, layer, ...)
+	return self.layer_map[layer]:set(...)
 end
 
 local function get(self, pos)
@@ -75,19 +78,6 @@ local function heal(self, team, area, heal, func, ...)
 	end
 end
 
-local function effect(self, team, area, name, ...)
-	for k, p in pairs(area) do
-		local f = fx(name, ...)
-		f.map = map
-		f.team = team
-		f.pos = p
-
-		-- TODO reacts here
-
-		table.insert(self.effects, f)
-	end
-end
-
 local function spawn(self, team, name, pos)
 	if self:get(pos) then
 		return nil
@@ -120,60 +110,44 @@ local function kill(self, obj)
 	return false
 end
 
-local function contact(self, obj)
-	local step = obj.step or 0x10
+local function contact(self, seed)
+	local step = seed.step or 0x10
 	while step > 0 do
-		local orig_pos = obj.pos
-		local list = {}
-		for k, v in pairs(self.effects) do
-			if hexagon.cmp(v.pos, obj.pos) then
-				table.insert(list, v)
+		core.log(seed.name .. " contact " .. hexagon.print(seed.pos))
+		local orig_pos = seed.pos
+		local moved = false
+		for i = 1, #self.layers, 1 do
+			local seed = self.layers[i]:contact(seed)
+			if not seed then
+				return nil
+			end
+			if not hexagon.cmp(seed.pos, orig_pos) then
+				core.log(seed.name .. " moved to " .. hexagon.print(seed.pos))
+				moved = true
+				break
 			end
 		end
-
-		table.sort(list, function(a, b)
-			return a.priority < b.priority
-		end)
-
-		for i = 1, #list, 1 do
-			local f = list[i]
-			if f.contact then
-				f:contact(obj)
-				if not hexagon.cmp(obj.pos, orig_pos) then
-					break
-				end
-			end
-		end
-
-		if hexagon.cmp(obj.pos, orig_pos) then
+		if not moved then
 			break
 		end
+
 		step = step - 1
 	end
-	return obj
-end
 
-
-local function tick_effect(self, team)
-	local queue = {}
-	for k, f in pairs(self.effects) do
-		if f.team ~= team or core.common_tick(f) then
-			table.insert(queue, f)
-		end
-	end
-	self.effects = queue
+	return seed
 end
 
 local function tick(self, tid)
-	tick_effect(self, tid)
+	-- layers tick
+	for i = 1, #self.layers, 1 do
+		self.layers[i]:tick(tid)
+	end
 
 	local team = self:get_team(tid)
 	for k, e in pairs(team) do
-		-- apply effects
-		for k, f in pairs(self.effects) do
-			if hexagon.cmp(f.pos, e.pos) and f.apply then
-				f:apply(e)
-			end
+		-- layers apply
+		for i = 1, #self.layers, 1 do
+			self.layers[i]:apply(e)
 		end
 
 		e.status = {}
@@ -218,17 +192,17 @@ return function(scale, layer_list)
 	local map = {
 		scale = scale,
 		layers = {},
+		layer_map = {},
 		teams = {},
 		entities = {},
-		effects = {},
 		new_team = new_team,
-		layer = layer,
+		layer_get = layer_get,
+		layer_set = layer_set,
 		get = get,
 		get_area = get_area,
 		get_team = get_team,
 		damage = damage,
 		heal = heal,
-		effect = effect,
 		contact = contact,
 		spawn = spawn,
 		kill = kill,
@@ -236,8 +210,10 @@ return function(scale, layer_list)
 	}
 
 	for i = 1, #layer_list, 1 do
-		local l = layer_list[i]
-		map.layers[l] = require(l)(map)
+		local n = layer_list[i]
+		local l = require("layer_" .. n)(map)
+		map.layers[i] = l
+		map.layer_map[n] = l
 	end
 
 	return map

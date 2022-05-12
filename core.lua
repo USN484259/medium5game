@@ -192,7 +192,7 @@ end
 
 local function miss(speed, accuracy)
 	local val = util.random("raw")
-	log("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. string.format("0x%X", val))
+	-- log("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. string.format("0x%X", val))
 	val = (val ~ (val >> 4)) & 0x0F
 	return val >= (8 + (accuracy - speed) * 2)
 end
@@ -313,7 +313,7 @@ local function new_entity(name, template)
 	}, template)
 end
 
-local function new_character(name, template, skills, fixed_buff)
+local function new_character(name, template, skills)
 	local obj = util.merge_table(new_entity(name, template), {
 		energy = template.generator,
 		sanity = 100,
@@ -328,14 +328,6 @@ local function new_character(name, template, skills, fixed_buff)
 		local sk = util.copy_table(skills[i])
 		sk.owner = obj
 		table.insert(obj.skills, sk)
-	end
-
-	if fixed_buff then
-		for i = 1, #fixed_buff, 1 do
-			local b = util.copy_table(fixed_buff[i])
-			b.owner = obj
-			table.insert(obj.buff, b)
-		end
 	end
 
 	return obj
