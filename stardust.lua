@@ -61,7 +61,7 @@ local template = {
 		name = "ether",
 		cost = 40,
 		single = function(entity, target)
-			entity.map:damage(entity.team, { target }, {
+			entity.map:damage(entity.team, target, {
 				damage = 100,
 				element = "ether",
 			}, buff.insert, buff_ether_charge, 0)
@@ -361,7 +361,7 @@ local skill_blackhole = {
 
 local skill_lazer = {
 	name = "lazer",
-	type = "directtion",
+	type = "direction",
 	cooldown = 1,
 	remain = 0,
 	enable = true,

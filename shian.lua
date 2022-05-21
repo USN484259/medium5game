@@ -26,7 +26,7 @@ local template = {
 		cost = 60,
 		range = 5,
 		single = function(entity, target)
-			entity.map:damage(entity.team, { target }, {
+			entity.map:damage(entity.team, target, {
 				damage = entity.power * 2,
 				element = "earth",
 			})
@@ -48,7 +48,7 @@ local buff_apple = {
 	tick = {{
 		core.priority.pre_stat, function(self)
 			local entity = self.owner
-			if duration > 1 then
+			if self.duration > 1 then
 				entity.generator = entity.generator * 2
 				entity.power = entity.power * 9 // 8
 			end
@@ -93,10 +93,11 @@ local buff_shield = {
 						origin = entity,
 						func = function(self, entity, damage)
 							local origin = self.origin
-							local res
+							local blk
 							-- absorb 2 damage using 1 energy
-							res, damage = core.shield(damage, 2 * origin.energy)
-							origin.energy = res // 2
+							blk, damage = core.shield(damage, 2 * origin.energy)
+							origin.map:ui(origin, "shield", blk, origin.inventory[1])
+							origin.energy = origin.energy - blk // 2
 							return damage
 						end
 					})
@@ -128,10 +129,11 @@ local buff_final_guard = {
 					origin = entity,
 					func = function(self, entity, damage)
 						local origin = self.origin
-						local res
+						local blk
 						-- absorb 2 damage using 1 energy or 1 health
-						res, damage = core.shield(damage, 2 * origin.energy)
-						origin.energy = res // 2
+						blk, damage = core.shield(damage, 2 * origin.energy)
+						origin.map:ui(origin, "shield", blk)
+						origin.energy = origin.energy - blk // 2
 
 						if damage then
 							core.damage(origin, {
@@ -306,7 +308,7 @@ local skill_cannon = {
 }
 
 local skill_apple = {
-	name = "apple",
+	name = "eat_apple",
 	type = "effect",
 	cooldown = 0,
 	remain = 0,

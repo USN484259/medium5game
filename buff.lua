@@ -15,6 +15,9 @@ local function buff_remove(entity, tar)
 	for i = 1, #entity.buff, 1 do
 		local b = entity.buff[i]
 		if (type(tar) == "string" and b.name == tar) or (tar == b) then
+			if b.remove then
+				b:remove()
+			end
 			b.removed = true
 			table.remove(entity.buff, k)
 			return b
@@ -70,6 +73,8 @@ local function buff_tick(team)
 						})
 					end
 				end
+			elseif b.remove then
+				b:remove()
 			end
 		end
 		e.buff = new_buff
@@ -84,7 +89,6 @@ local function buff_tick(team)
 		local b = f.buff
 
 		if not b.removed and not f.func(b) then
-			b.removed = true
 			buff_remove(b.owner, b)
 		end
 	end
@@ -182,7 +186,6 @@ local function drown()
 		tick = {{
 			core.priority.drown, function(self)
 				local entity = self.owner
-				local w = entity.map:layer_get("water", entity.pos)
 
 				if entity.status.fly or entity.immune.drown then
 					return false
@@ -271,6 +274,7 @@ local function bubble(team, strength, duration)
 				if self.strength == 0 then
 					return false
 				end
+
 				entity.immune.drown = true
 				entity.status.bubble = self.strength
 				core.hook(entity, {
@@ -279,7 +283,11 @@ local function bubble(team, strength, duration)
 					priority = core.priority.bubble,
 					func = function(self, entity, damage)
 						local b = self.src
-						b.strength, damage = core.shield(damage, b.strength, 1 / 2)
+						local blk
+						blk, damage = core.shield(damage, b.strength, 1 / 2)
+						entity.map:ui(entity, "shield", blk, b)
+						b.strength = b.strength - blk
+
 						return damage
 					end
 				})
@@ -307,13 +315,19 @@ local function bubble(team, strength, duration)
 		name = "bubble",
 		strength = strength,
 		duration = duration,
+		team = team,
 
 		initial = function(self)
 			local entity = self.owner
 			if entity.immune.bubble then
 				return false
 			end
-			if buff_get(entity, "bubble") then
+			local b = buff_get(entity, "bubble")
+			if b then
+				if b.team == team then
+					b.duration = b.duration + self.duration
+					b.strength = math.max(b.strength, self.strength)
+				end
 				return false
 			end
 

@@ -161,7 +161,7 @@ return function(map)
 				else
 					v.power = v.power - f.power
 				end
-			else	
+			else
 				error(cmd)
 			end
 		end,

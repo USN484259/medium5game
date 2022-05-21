@@ -120,7 +120,7 @@ return function(map)
 				end
 			elseif cmd == "detonate" then
 				local pos, power = ...
-				
+
 				detonate(self.map, self.source_list, pos, power)
 			else
 				error(cmd)

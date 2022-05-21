@@ -3,8 +3,8 @@ local core = require("core")
 local hexagon = require("hexagon")
 local buff = require("buff")
 
-local function new_team(self, ...)
-	table.insert(self.teams, table.pack(...))
+local function new_team(self, handler)
+	table.insert(self.teams, handler or {})
 	return #self.teams
 end
 
@@ -94,6 +94,8 @@ local function spawn(self, team, name, pos)
 	obj.pos = pos
 
 	table.insert(self.entities, obj)
+	self:ui(obj, "spawn")
+
 	return obj
 end
 
@@ -104,6 +106,7 @@ local function kill(self, obj)
 				obj:death()
 			end
 			table.remove(self.entities, k)
+			self:ui(obj, "kill")
 			return true
 		end
 	end
@@ -113,7 +116,6 @@ end
 local function contact(self, seed)
 	local step = seed.step or 0x10
 	while step > 0 do
-		core.log(seed.name .. " contact " .. hexagon.print(seed.pos))
 		local orig_pos = seed.pos
 		local moved = false
 		for i = 1, #self.layers, 1 do
@@ -122,7 +124,7 @@ local function contact(self, seed)
 				return nil
 			end
 			if not hexagon.cmp(seed.pos, orig_pos) then
-				core.log(seed.name .. " moved to " .. hexagon.print(seed.pos))
+				self:ui(seed, "seed", orig_pos)
 				moved = true
 				break
 			end
@@ -155,7 +157,11 @@ local function tick(self, tid)
 		e.immune = {}
 
 		for k, v in pairs(e.template) do
-			e[k] = v
+			if type(v) == "table" then
+				e[k] = util.copy_table(v)
+			else
+				e[k] = v
+			end
 		end
 	end
 
@@ -169,11 +175,8 @@ local function tick(self, tid)
 		end
 	end
 
-	if tid > 0 then
-		local ctrl = self.teams[tid]
-		if type(ctrl[1]) == "function" then
-			ctrl[1](self, tid, table.unpack(ctrl, 2))
-		end
+	if tid > 0 and self.teams[tid].ui then
+		self.teams[tid].ui(self, tid)
 	end
 
 	buff.defer(self:get_team(tid))
@@ -185,6 +188,14 @@ local function run(self)
 		for i = 1, #self.teams, 1 do
 			tick(self, i)
 		end
+	end
+end
+
+local function ui(self, obj, cmd, ...)
+	local tid = obj.team
+	local func = self.teams[tid][cmd]
+	if func then
+		func(self, obj, ...)
 	end
 end
 
@@ -207,6 +218,7 @@ return function(scale, layer_list)
 		spawn = spawn,
 		kill = kill,
 		run = run,
+		ui = ui,
 	}
 
 	for i = 1, #layer_list, 1 do

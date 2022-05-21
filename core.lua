@@ -22,21 +22,6 @@ local priority = {
 	bubble = 20,
 }
 
-local do_log = false
-
-local function log(str)
-	if do_log then
-		print(str)
-	end
-end
-
-local function log_level(...)
-	if select("#", ...) > 0 then
-		do_log = select(1, ...)
-	end
-	return do_log
-end
-
 local function common_tick(obj)
 	if obj.duration then
 		if obj.duration <= 0 then
@@ -76,14 +61,13 @@ local function shield(damage, strength, ratio)
 	local req = dmg * (ratio or 1)
 	local blk = math.floor(math.min(req, strength))
 
-	log("shield blocked " .. blk .. " damage")
-
 	if blk >= dmg then
-		return strength - blk
+		return blk
 	else
 		damage.damage = dmg - blk
-		return strength - blk, damage
+		return blk, damage
 	end
+
 end
 
 local function weaken(entity, value, ratio)
@@ -133,7 +117,6 @@ local function multi_target(skill, target_list, unique)
 end
 
 local function hook(entity, hook)
-	log(entity.name .. " add hook " .. hook.name)
 	table.insert(entity.hook, util.copy_table(hook))
 	table.sort(entity.hook, function(a, b)
 		return a.priority < b.priority
@@ -145,27 +128,22 @@ local function move(entity, waypoint)
 	local map = entity.map
 	local pos = entity.pos
 	for i = 1, #waypoint, 1 do
-		local str = entity.name .. ' ' .. hexagon.print(pos)
 		pos = hexagon.direction(pos, waypoint[i])
-		str = str .. " ===> " .. hexagon.print(pos)
 		if pos[1] > map.scale or map:get(pos) then
-			log(str .. " blocked")
 			return false
 		end
-		log(str)
 	end
+	map:ui(entity, "move", waypoint)
 	entity.pos = pos
 	return true
 end
 
 local function teleport(entity, target)
 	local map = entity.map
-	local str = entity.name .. ' ' .. hexagon.print(entity.pos) .. " |--> " .. hexagon.print(target)
 	if target[1] > map.scale or map:get(target) then
-		log(str .. " blocked")
 		return false
 	end
-	log(str)
+	map:ui(entity, "teleport", target)
 	entity.pos = target
 	return true
 end
@@ -185,7 +163,7 @@ local function heal(entity, heal)
 		val = math.max(req, val)
 	end
 
-	log(entity.name .. " gain " .. val .. " HP")
+	map:ui(entity, "heal", val)
 	entity.health = math.floor(entity.health + val)
 	return val
 end
@@ -198,7 +176,6 @@ local function miss(speed, accuracy)
 end
 
 local function damage(entity, damage)
-	log(entity.name .. " get damage " .. damage.damage .. " of " .. damage.element)
 	if entity.status.fly and damage.type == "ground" then
 		return nil
 	end
@@ -206,7 +183,7 @@ local function damage(entity, damage)
 		return nil
 	end
 	if damage.accuracy and miss(entity.speed or 0, damage.accuracy) then
-		log("missed")
+		entity.map:ui(entity, "miss")
 		return nil
 	end
 	local val
@@ -223,18 +200,17 @@ local function damage(entity, damage)
 		local resist = entity.resistance[damage.element] or 0
 		val = damage.damage * (1 - resist)
 	end
-	if damage.damage == 0 then
+	if val == 0 then
 		return
 	end
+
+	entity.map:ui(entity, "damage", val, damage.element)
 	if damage.element == "mental" then
-		log(entity.name .. " lose " .. val .. " sanity")
 		entity.sanity = math.max(0, math.floor(entity.sanity - val))
 	else
-		log(entity.name .. " lose " .. val .. " HP")
 		entity.health = math.floor(entity.health - val)
 	end
 	if not entity:alive() then
-		log(entity.name .. " died")
 		entity.map:kill(entity)
 		return val, entity.health_cap
 	end
@@ -242,14 +218,15 @@ local function damage(entity, damage)
 end
 
 local function generate(entity, power)
-	log(entity.name .. " gain " .. power .. " energy")
+	entity.map:ui(entity, "generate", power)
 	entity.energy = math.floor(math.min(entity.energy_cap, entity.energy + power))
 end
 
 local function tick(entity)
 	if not entity.status.down then
-		log(entity.name .. " ticking")
-		generate(entity, entity.generator)
+		if entity.generator then
+			generate(entity, entity.generator)
+		end
 		for k, v in pairs(entity.inventory) do
 			v:tick()
 		end
@@ -259,7 +236,6 @@ local function tick(entity)
 		end
 		entity.active = true
 	else
-		log(entity.name .. " is down, not ticked")
 		entity.active = false
 	end
 end
@@ -281,11 +257,12 @@ local function action(entity, skill, ...)
 		return false
 	end
 
-	log(entity.name .. " use skill " .. skill.name)
 	local nowait = (skill.cooldown == 0)
 	local res = skill:use(...)
 
 	if res then
+		entity.map:ui(entity, "skill", skill)
+
 		skill.remain = skill.cooldown
 		entity.energy = entity.energy - cost
 		entity.active = nowait
@@ -295,7 +272,6 @@ local function action(entity, skill, ...)
 end
 
 local function new_entity(name, template)
-	log("spawned entity " .. name)
 	return util.merge_table({
 		name = name,
 		template = template,
@@ -335,8 +311,6 @@ end
 
 return {
 	priority = priority,
-	log = log,
-	log_level = log_level,
 	common_tick = common_tick,
 	skill_update = skill_update,
 	shield = shield,

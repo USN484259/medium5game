@@ -48,7 +48,7 @@ local template = {
 		name = "water",
 		cost = 30,
 		single = function(entity, target)
-			entity.map:damage(entity.team, { target }, {
+			entity.map:damage(entity.team, target, {
 				damage = 100,
 				element = "water",
 			}, buff.insert, "bubble", entity.team, entity.power, 2)
@@ -210,7 +210,7 @@ local function water_area(entity, range, threshold, shore)
 end
 
 local function new_bubble()
-	local bubble = core.new_entity("bubble", {
+	local bubble = core.new_entity("bubble_entity", {
 		health_cap = 100,
 		resistance = {
 			water = 0.4,
@@ -240,7 +240,7 @@ local function new_bubble()
 	})
 	bubble.ttl = 4
 	buff.insert(bubble, {
-		name = "bubble_entity",
+		name = "bubble_countdown",
 		tick = {{
 			core.priority.damage, function(self)
 				local entity = self.owner
@@ -385,7 +385,7 @@ local skill_convert = {
 }
 
 local skill_bubble = {
-	name = "bubble",
+	name = "make_bubble",
 	type = "multitarget",
 	shots = 1,
 	cooldown = 2,
@@ -544,7 +544,7 @@ return function()
 			local req = math.min(self.water_cap // 8, self.water_cap - self.water)
 			local val = entity.map:layer_set("water", "depth", entity.pos, -req)
 			if val then
-				core.log(self.name .. " absorb " .. val .. " water")
+				-- core.log(self.name .. " absorb " .. val .. " water")
 				self.water = self.water + val
 			end
 		end,

@@ -127,7 +127,7 @@ local skill_attack = {
 			accuracy = entity.accuracy,
 		})
 		if res > 0 and self.attach then
-			self.attach(entity, target)
+			self.attach(entity, target_list)
 		end
 
 		return true

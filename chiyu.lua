@@ -29,10 +29,10 @@ local template = {
 		name = "fire",
 		cost = 30,
 		single = function(entity, target)
-			entity.map:damage(entity.team, { target }, {
-				damage = 100,
+			entity.map:damage(entity.team, target, {
+				damage = 60,
 				element = "fire",
-			}, buff.insert, "burn", 2)
+			}, buff.insert, "burn", 2, 30)
 		end,
 
 		area = function(entity, area)
@@ -52,11 +52,11 @@ local buff_curse = {
 		core.priority.post_stat, function(self)
 			local entity = self.owner
 			local t = entity.inventory[1].temperature
-			local cooling = 4 + entity.map:layer_get("air", entity.pos)
+			local cooling = 2 + entity.map:layer_get("air", entity.pos)
 
 			if entity.status.wet then
 				cooling = cooling * 2
-				entity.power = entity.power * 0.8
+				entity.power = entity.power * 4 // 5
 			end
 
 			if entity.status.down then
@@ -65,7 +65,7 @@ local buff_curse = {
 
 			t = math.max(0, t - cooling)
 			entity.inventory[1].temperature = t
-			entity.power = entity.power * (1 + 0.1 * (t // 10))
+			entity.power = math.floor(entity.power * (1 + 0.1 * (t // 10)))
 
 			return true
 		end
@@ -157,7 +157,7 @@ local skill_attack = {
 			ember_damage(entity, { target }, {
 				damage = entity.power / 2,
 				element = "fire",
-			}, buff.insert, "burn", 1)
+			}, buff.insert, "burn", 1, 40)
 		end
 		return true
 	end,
@@ -188,7 +188,7 @@ local skill_charge = {
 			ember_damage(entity, line, {
 				damage = entity.power,
 				element = "fire",
-			}, buff.insert, "burn", 1)
+			}, buff.insert, "burn", 1, 40)
 
 			ember_damage(entity, { line[#line - 1] }, {
 				damage = entity.power * 2,
@@ -236,7 +236,7 @@ local skill_ignition = {
 			entity.map:damage(entity.team, area, {
 				damage = seed.power,
 				element = "fire",
-			}, buff.insert, "burn", 1)
+			}, buff.insert, "burn", 1, 60)
 			entity.map:layer_set("fire", entity.team, area, 1, 40)
 		end
 
@@ -271,7 +271,7 @@ local skill_sweep = {
 		ember_damage(entity, area, {
 			damage = entity.power,
 			element = "fire",
-		}, buff.insert, "burn", 1)
+		}, buff.insert, "burn", 1, 40)
 
 		return true
 	end,
@@ -333,12 +333,12 @@ local skill_phoenix = {
 			ember_damage(entity, main, {
 				damage = entity.power * 2,
 				element = "fire",
-			}, buff.insert, "burn", 2)
+			}, buff.insert, "burn", 2, 40)
 
 			ember_damage(entity, sides, {
 				damage = entity.power,
 				element = "fire",
-			}, buff.insert, "burn", 2)
+			}, buff.insert, "burn", 2, 40)
 
 			ember_damage(entity, { main[#main - 1] }, {
 				damage = entity.power * 2,
