@@ -1,78 +1,40 @@
+local cfg = require("config").entity.cangqiong
 local util = require("util")
 local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
-local storm_duration = 3
-
-local template = {
+local quiver = {
+	name = "quiver.air",
 	element = "air",
-	health_cap = 1000,
-	speed = 8,
-	accuracy = 9,
-	power = 100,
-	sight = 4,
-	energy_cap = 1000,
-	generator = 100,
-	moved = false,
-
-	resistance = {
-		physical = 0,
-		fire = 0,
-		water = 0,
-		air = 0.2,
-		earth = 0,
-		ether = 0,
-		mental = 0,
-	},
-
-	quiver = {
-		name = "air",
-		shots = 2,
-
-		area = function(entity, area)
-			entity.map:damage(entity.team, area, {
-				damage = 200,
-				element = "physical",
-			})
-		end,
-	},
-
+	cost = cfg.quiver.single.cost,
+	range = cfg.quiver.single.range,
+	shots = cfg.quiver.single.shots,
+	area = function(entity, area)
+		entity.map:damage(entity, area, cfg.quiver.area.damage)
+	end,
 }
 
+
 local buff_storm = {
-	name = "storm",
+	name = "buff.cangqiong.storm",
 	priority = core.priority.ultimate,
-	duration = storm_duration,
+	duration = cfg.skill.storm.duration,
 
 	tick = {{
 		core.priority.ultimate, function(self)
 			local entity = self.owner
 			entity.status.ultimate = true
-			entity.speed = math.floor(entity.speed / 2)
-			return true
-		end
-	}, {
-		core.priority.damage, function(self)
-			local entity = self.owner
-			entity.map:damage(entity.team, hexagon.range(entity.pos, 4), {
-				damage = 60,
-				element = "air",
-			})
+			entity.speed = math.floor(entity.speed * cfg.skill.storm.speed_ratio)
 			return true
 		end
 	}}
 }
 
-local skill_move = {
-	name = "move",
+local skill_move = util.merge_table({
+	name = "skill.cangqiong.move",
 	type = "waypoint",
-	cooldown = 0,
 	remain = 0,
-	enable = true,
-	cost = 10,
-	step = 3,
-	power_req = 40,
 
 	update = function(self)
 		local entity = self.owner
@@ -92,24 +54,19 @@ local skill_move = {
 
 		return res
 	end,
-}
+}, cfg.skill.move)
 
-local skill_attack = {
-	name = "attack",
+local skill_attack = util.merge_table({
+	name = "skill.cangqiong.attack",
 	type = "multitarget",
-	shots = 2,
-	cooldown = 1,
 	remain = 0,
-	enable = true,
-	cost = 40,
-	power_req = 60,
 
 	update = function(self)
 		local entity = self.owner
 		local arrow = entity.inventory[1]:get()
 
 		self.shots = arrow.shots or 1
-		self.cost = 40 + (arrow.cost or 0)
+		self.cost = cfg.skill.attack.cost + (arrow.cost or 0)
 		self.range = arrow.range
 		self.attach = arrow.single
 
@@ -121,27 +78,22 @@ local skill_attack = {
 		if not core.multi_target(self, target_list) then
 			return false
 		end
-		local res = entity.map:damage(entity.team, target_list, {
-			damage = entity.power,
-			element = "physical",
-			accuracy = entity.accuracy,
-		})
-		if res > 0 and self.attach then
-			self.attach(entity, target_list)
+		for k, v in pairs(target_list) do
+			local res = entity.map:damage(entity, { v }, self.damage)
+			if res > 0 and self.attach then
+				self.attach(entity, { v })
+			end
 		end
 
 		return true
 	end,
-}
+}, cfg.skill.attack)
 
-local skill_select = {
-	name = "select_arrow",
+local skill_select_arrow = util.merge_table({
+	name = "skill.cangqiong.select_arrow",
 	type = "toggle",
-	cooldown = 0,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	item = "lanyu",
+	item = "item.cangqiong.lanyu",
 
 	update = core.skill_update,
 	use = function(self)
@@ -149,15 +101,12 @@ local skill_select = {
 		bow:next()
 		return true
 	end,
-}
+}, cfg.skill.select_arrow)
 
-local skill_probe = {
-	name = "probe",
+local skill_probe = util.merge_table({
+	name = "skill.cangqiong.probe",
 	type = "target",
-	cooldown = 0,
 	remain = 0,
-	enable = true,
-	cost = 80,
 
 	update = function(self)
 		local entity = self.owner
@@ -175,19 +124,12 @@ local skill_probe = {
 		return true
 --]]
 	end,
-}
+}, cfg.skill.probe)
 
-local skill_wind_control = {
-	name = "wind_control",
-	type = "vector",
-	cooldown = 0,
+local skill_wind_control = util.merge_table({
+	name = "skill.cangqiong.wind_control",
+	type = "line",
 	remain = 0,
-	enable = true,
-	cost = 80,
-	noblock = true,
-	range = 4,
-	length = 3,
-	power_req = 60,
 
 	update = core.skill_update,
 	use = function(self, point, direction)
@@ -198,20 +140,15 @@ local skill_wind_control = {
 		end
 
 		local area = hexagon.line(point, direction, self.length - 1)
-		entity.map:layer_set("air", "wind", area, direction, 2)
+		entity.map:layer_set("air", "wind", area, direction, self.duration)
 		return true
 	end,
-}
+}, cfg.skill.wind_control)
 
-local skill_arrow_rain = {
-	name = "arrow_rain",
+local skill_arrow_rain = util.merge_table({
+	name = "skill.cangqiong.arrow_rain",
 	type = "effect",
-	cooldown = 6,
 	remain = 0,
-	enable = true,
-	cost = 300,
-	range = 3,
-	power_req = 80,
 
 	update = function(self)
 		local entity = self.owner
@@ -224,24 +161,19 @@ local skill_arrow_rain = {
 		local entity = self.owner
 		local bow = entity.inventory[1]
 
-		self.func(entity, hexagon.range(entity.pos, self.range))
+		self.func(entity, hexagon.range(entity.pos, self.radius))
 		return true
 	end,
-}
+}, cfg.skill.arrow_rain)
 
-local skill_storm = {
-	name = "storm",
+local skill_storm = util.merge_table({
+	name = "skill.cangqiong.storm",
 	type = "effect",
-	cooldown = 12,
 	remain = 0,
-	enable = true,
-	cost = 800,
-	range = 5,
 
 	update = function(self)
 		local entity = self.owner
 		local butterfly = entity.inventory[2]
-		local active = entity.status.ultimate
 
 		self.enable = core.skill_update(self) and butterfly.remain == 0
 	end,
@@ -249,28 +181,37 @@ local skill_storm = {
 		local entity = self.owner
 		local butterfly = entity.inventory[2]
 
-		entity.map:layer_set("air", "storm", entity.team, entity,pos, self.range, storm_duration, entity.power)
+		local info = {
+			team = entity.team,
+			pos = entity.pos,
+			radius = self.radius,
+			duration = self.duration,
+			power = entity.power * self.power_ratio,
+		}
+
+		entity.map:layer_set("air", "storm", info)
 
 		butterfly.remain = butterfly.cooldown
 		buff.insert(entity, buff_storm)
 
 		return true
 	end,
-}
+}, cfg.skill.storm)
 
 return function()
-	local cangqiong = core.new_character("cangqiong", template, {
+	local cangqiong = core.new_character("entity.cangqiong", cfg.template, {
 		skill_move,
 		skill_attack,
-		skill_select,
+		skill_select_arrow,
 		skill_probe,
 		skill_wind_control,
 		skill_arrow_rain,
 		skill_storm,
 	})
+	cangqiong.quiver = quiver
 
 	table.insert(cangqiong.inventory, {
-		name = "lanyu",
+		name = "item.cangqiong.lanyu",
 		owner = cangqiong,
 		modes = {},
 		select = 1,
@@ -278,16 +219,16 @@ return function()
 		tick = function(self)
 			local entity = self.owner
 			self.modes = {}
-			local list = entity.map:get_area(hexagon.range(entity.pos, 1))
+			local list = entity.map:get_area(hexagon.range(entity.pos, cfg.item.lanyu.reach))
 			for k, e in pairs(list) do
-				if e.team == entity.team and e.quiver and not (e.status.down or e.status.ultimate) then
+				if e.team == entity.team and e.quiver then
 					table.insert(self.modes, e.quiver)
 				end
 			end
 
 			assert(#self.modes > 0)
 			table.sort(self.modes, function(a, b)
-				return a.name < b.name
+				return a.element < b.element
 			end)
 			self.select = 1
 		end,
@@ -301,8 +242,8 @@ return function()
 	})
 
 	table.insert(cangqiong.inventory, {
-		name = "butterfly",
-		cooldown = 6,
+		name = "item.cangqiong.butterfly",
+		cooldown = cfg.item.butterfly.cooldown,
 		remain = 0,
 		tick = core.common_tick,
 	})

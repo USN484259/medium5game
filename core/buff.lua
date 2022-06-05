@@ -1,9 +1,14 @@
+local config = require("config")
+local cfg = config.buff
 local util = require("util")
 local core = require("core")
 
 local list
 
 local function buff_get(entity, name)
+	if string.sub(name, 1, 5) ~= "buff." then
+		name = "buff." .. name
+	end
 	for k, b in pairs(entity.buff) do
 		if b.name == name then
 			return b
@@ -12,6 +17,9 @@ local function buff_get(entity, name)
 end
 
 local function buff_remove(entity, tar)
+	if type(tar) == "string" and string.sub(tar, 1, 5) ~= "buff." then
+		tar = "buff." .. tar
+	end
 	for i = 1, #entity.buff, 1 do
 		local b = entity.buff[i]
 		if (type(tar) == "string" and b.name == tar) or (tar == b) then
@@ -43,7 +51,7 @@ local function buff_insert(initial_tick, entity, name, ...)
 		return
 	end
 
-	if initial_tick then
+	if initial_tick and b.tick then
 		for i = 1, #b.tick, 1 do
 			local f = b.tick[i]
 			if f[1] < core.priority.damage and not f[2](b) then
@@ -113,7 +121,7 @@ local function buff_defer(team)
 end
 local function fly(power)
 	return {
-		name = "fly",
+		name = "buff.fly",
 		power = power or 0,
 
 		tick = {{
@@ -130,7 +138,7 @@ end
 
 local function down(duration)
 	return {
-		name = "down",
+		name = "buff.down",
 		duration = duration,
 
 		tick = {{
@@ -140,7 +148,7 @@ local function down(duration)
 					entity.status.down = true
 					entity.power = 0
 					entity.speed = 0
-					core.weaken(entity, 0.2, 1 / 2)
+					core.weaken(entity, cfg.down.weaken.value, cfg.down.weaken.ratio)
 				end
 				return true
 			end
@@ -150,12 +158,21 @@ end
 
 local function block_tick(entity, strength)
 	if entity.power and entity.speed and not entity.status.down then
-		if strength > entity.power then
-			entity.speed = entity.speed // 2
-			core.weaken(entity, 0.2)
-		elseif strength > entity.power / 2 then
-			entity.speed = entity.speed * 3 // 4
-			core.weaken(entity, 0.1)
+		local v = strength / entity.power
+		local t
+		if v > cfg.block.strong.threshold then
+			t = cfg.block.strong
+		elseif v > cfg.block.normal.threshold then
+			t = cfg.block.normal
+		end
+
+		if t then
+			if t.speed then
+				entity.speed = math.floor(entity.speed * t.speed)
+			end
+			if t.weaken then
+				core.weaken(entity, t.weaken.value, t.weaken.ratio)
+			end
 		end
 
 		entity.power = math.max(0, entity.power - strength)
@@ -165,7 +182,7 @@ end
 
 local function block(strength, duration)
 	return {
-		name = "block",
+		name = "buff.block",
 		duration = duration,
 		strength = strength,
 
@@ -181,7 +198,7 @@ end
 
 local function drown()
 	return {
-		name = "drown",
+		name = "buff.drown",
 
 		tick = {{
 			core.priority.drown, function(self)
@@ -194,9 +211,9 @@ local function drown()
 				entity.status.drown = true
 				entity.status.wet = true
 				if entity.speed and entity.power then
-					entity.speed = entity.speed // 2
-					entity.power = entity.power // 2
-					core.weaken(entity, 0.2, 0.5)
+					entity.speed = math.floor(entity.speed * cfg.drown.speed)
+					entity.power = math.floor(entity.power * cfg.drown.power)
+					core.weaken(entity, cfg.drown.weaken.value, cfg.drown.weaken.ratio)
 				end
 
 				return true
@@ -205,7 +222,7 @@ local function drown()
 			core.priority.damage, function(self)
 				local entity = self.owner
 				core.damage(entity, {
-					damage = entity.health_cap // 4,
+					damage = entity.health_cap * cfg.drown.ratio,
 					element = "water",
 					real = true,
 				})
@@ -216,9 +233,9 @@ local function drown()
 	}
 end
 
-local function burn(duration, damage)
+local function burn(damage, duration)
 	return {
-		name = "burn",
+		name = "buff.burn",
 		duration = duration,
 		damage = damage,
 
@@ -251,7 +268,7 @@ end
 
 local function wet(duration)
 	return {
-		name = "wet",
+		name = "buff.wet",
 		duration = duration,
 
 		tick = {{
@@ -283,11 +300,11 @@ local function bubble(team, strength, duration)
 					priority = core.priority.bubble,
 					func = function(self, entity, damage)
 						local b = self.src
+						local t = cfg.bubble
 						local blk
-						blk, damage = core.shield(damage, b.strength, 1 / 2)
-						entity.map:ui(entity, "shield", blk, b)
-						b.strength = b.strength - blk
-
+						blk, damage = core.shield(damage, b.strength * t.energy_efficiency, t.absorb_efficiency)
+						entity.map:event(b, "shield", blk)
+						b.strength = math.floor(b.strength - blk / t.energy_efficiency)
 						return damage
 					end
 				})
@@ -305,14 +322,14 @@ local function bubble(team, strength, duration)
 		}, {
 			core.priority.block, function(self)
 				local entity = self.owner
-				block_tick(entity, 2 * self.strength)
+				block_tick(entity, self.strength * cfg.bubble.block_ratio)
 				return true
 			end,
 		}},
 	}
 
 	return {
-		name = "bubble",
+		name = "buff.bubble",
 		strength = strength,
 		duration = duration,
 		team = team,
@@ -348,38 +365,41 @@ local function storm(team, power)
 		[true] = {{
 			core.priority.stat, function(self)
 				local entity = self.owner
-				entity.speed = entity.speed + 2
-				entity.accuracy = entity.accuracy + 2
+				local t = config.entity.cangqiong.skill.storm
+				entity.speed = entity.speed + t.ally.speed
+				entity.accuracy = entity.accuracy + t.ally.accuracy
 				return false
 			end,
 		}},
 		[false] = {{
 			core.priority.block, function(self)
 				local entity = self.owner
-				block_tick(entity, self.strength)
-				entity.accuracy = math.min(0, entity.accuracy - 3)
+				local t = config.entity.cangqiong.skill.storm
+				block_tick(entity, self.strength * t.enemy.block_ratio)
+				entity.speed = math.max(0, entity.speed + t.enemy.speed)
+				entity.accuracy = math.max(0, entity.accuracy + t.enemy.accuracy)
 				return true
 			end,
 		}, {
 			core.priority.damage, function(self)
 				local entity = self.owner
-				core.damage(entity, {
-					damage = self.power / 4,
-					element = "air",
-				})
+				local t = config.entity.cangqiong.skill.storm
+				local d = util.copy_table(t.damage)
+				d.damage = self.power * d.ratio
+				d.ratio = nil
+				core.damage(entity, d)
 
-				core.damage(entity, {
-					damage = self.power,
-					element = "air",
-					type = "air",
-				})
+				d = util,copy_table(t.extra)
+				d.damage = self.power * d.ratio
+				d.ratio = nil
+				core.damage(entity, d)
 				return false
 			end,
 		}},
 	}
 
 	return {
-		name = "storm",
+		name = "buff.storm",
 		power = power,
 
 		initial = function(self)
@@ -387,17 +407,6 @@ local function storm(team, power)
 
 			self.tick = tick_table[entity.team == team]
 		end,
-
-		tick = {{
-			core.priority.damage, function(self)
-				core.damage(self.owner, {
-					damage = self.damage,
-					element = "air",
-					type = "air",
-				})
-				return false
-			end,
-		}}
 	}
 end
 
@@ -405,33 +414,33 @@ local function blackhole(team, power)
 	local tick_table = {
 		[true] = {{
 			core.priority.stat, function(self)
-				local entity = self.owner
-				entity.speed = entity.speed + 1
-				entity.accuracy = entity.accuracy + 1
+				-- noop
 				return true
 			end,
 		}},
 		[false] = {{
 			core.priority.block, function(self)
 				local entity = self.owner
-				block_tick(entity, self.power // 4)
+				local t = config.entity.stardust.skill.blackhole
+				block_tick(entity, self.power * t.block_ratio)
 				return true
 			end,
 		}, {
 			core.priority.damage, function(self)
 				local entity = self.owner
-				local cap = entity.health_cap
-				core.damage(entity, {
-					damage = math.max(self.power // 16, cap * self.strength / 2048),
-					element = "physical",
-				})
+				local t = config.entity.stardust.skill.blackhole
+
+				core.damage(entity, util.merge_table(
+					util.copy_table(t.damage), {
+						damage = t.damage.damage(self.power, entity.health_cap),
+					}))
 				return false
 			end,
 		}},
 	}
 
 	return {
-		name = "blackhole",
+		name = "buff.blackhole",
 		power = power,
 
 		initial = function(self)

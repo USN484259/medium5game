@@ -1,3 +1,4 @@
+local cfg = require("config").layer.fire
 local util = require("util")
 local core = require("core")
 local hexagon = require("hexagon")
@@ -12,7 +13,7 @@ set:
 
 --]]
 
-return function(map)
+return function(map, layer_info)
 	return {
 		map = map,
 		fire_list = {},
@@ -32,14 +33,14 @@ return function(map)
 		apply = function(self, entity)
 			local strength = self:get(entity.team, entity.pos)
 			if strength and strength > 0 then
-				buff.insert_notick(entity, "burn", 2, strength)
+				buff.insert_notick(entity, "burn", strength, cfg.burn_duration)
 			end
 		end,
 		contact = function(self, seed)
 			if seed.element == "fire" then
-				seed.power = seed.power * 5 // 4
+				seed.power = seed.power * cfg.power_fire
 			elseif seed.element == "water" then
-				seed.power = seed.power * 3 // 4
+				seed.power = seed.power * cfg.power_water
 			end
 
 			return seed

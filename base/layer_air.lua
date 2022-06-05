@@ -11,7 +11,7 @@ get:
 	pos, "storm"	internal, get storm
 set:
 	"wind", area, dir, duration	directed wind
-	"storm", team, center, range, duration, power	storm
+	"storm", {team, pos, radius, duration, power}	storm
 --]]
 
 local function do_tick(team, list)
@@ -28,7 +28,7 @@ local function do_tick(team, list)
 	return new_list
 end
 
-return function(map)
+return function(map, layer_info)
 	return {
 		map = map,
 		wind_list = {},
@@ -38,18 +38,23 @@ return function(map)
 			self.storm_list = do_tick(team, self.storm_list)
 		end,
 		apply = function(self, entity)
-			local storm = self:get(entity.pos, "storm")
-			if storm then
-				buff.insert_notick(entity, "storm", storm.team, steam.power)
+			local l = self:get(entity.pos, "storm")
+			for i, f in ipairs(l) do
+				buff.insert_notick(entity, "storm", f.team, f.power)
 			end
 		end,
 		contact = function(self, seed)
-			local storm = self:get(seed.pos, "storm")
-			if storm then
-				seed.pos = storm.center or seed.pos
-				seed.range = storm.range or seed.range
-				if seed.team ~= storm.team then
-					seed.power = seed.power / 2
+			local l = self:get(seed.pos, "storm")
+			if #l > 0 then
+				table.sort(l, function(a, b)
+					return b.team == seed.team
+				end)
+				local storm = l[1]
+				if seed.team == storm.team then
+					seed.pos = storm.pos or seed.pos
+					seed.range = storm.range or seed.range
+				else
+					seed = nil
 				end
 
 			else
@@ -76,49 +81,25 @@ return function(map)
 					end
 				end
 			elseif cmd == "storm" then
-				local cnt = 0
-				local res
+				local res = {}
 				for k, v in pairs(self.storm_list) do
-					if hexagon.distance(v.pos, pos, v.range) then
-						cnt = cnt + 1
-						if cnt > 2 then
-							res.power = 0
-							break
-						end
-
-						if res then
-							if v.power <= res.power then
-								res.power = res.power - v.power
-							else
-								local sub = res.power
-								res = util.copy_table(v)
-								v.power = v.power - sub
-							end
-						else
-							res = util.copy_table(v)
-						end
+					if hexagon.distance(v.pos, pos, v.radius) then
+						table.insert(res, v)
 					end
 				end
-
-				if res and res.power == 0 then
-					res.team = 0
-					res.center = nil
-					res.range = nil
-				end
-
 				return res
 			else
-				local storm = self:get(pos, "storm")
-				if storm then
-					return 2
+				local l = self:get(pos, "storm")
+				if #l > 0 then
+					return "storm"
 				end
 
 				local wind = self:get(pos, "wind")
 				if wind then
-					return 1
+					return "wind"
 				end
 
-				return 0
+				return nil
 			end
 		end,
 		set = function(self, cmd, ...)
@@ -138,29 +119,8 @@ return function(map)
 					end
 				end
 			elseif cmd == "storm" then
-				local team, center, range, duration, power = ...
-				local f = {
-					center = center,
-					team = team,
-					range = range,
-					duration = duration,
-					power = power,
-				}
-				local k, v = util.find(self.storm_list, f, function(a, b)
-					return hexagon.cmp(a.center, b.center)
-				end)
-
-				if not v then
-					table.insert(self.storm_list, f)
-				elseif v.power <= f.power then
-					table.remove(self.storm_list, k)
-					f.power = f.power - v.power
-					if f.power > 0 then
-						table.insert(self.storm_list, f)
-					end
-				else
-					v.power = v.power - f.power
-				end
+				local info = ...
+				table.insert(self.storm_list, info)
 			else
 				error(cmd)
 			end

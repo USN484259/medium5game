@@ -1,3 +1,4 @@
+local cfg = require("config").entity.toolman
 local core = require("core")
 local hexagon = require("hexagon")
 local buff = require("buff")
@@ -9,8 +10,8 @@ local template = {
 }
 
 return function()
-	local obj = core.new_character("toolman", template, {{
-		name = "attack",
+	local obj = core.new_character("entity.toolman", cfg.template, {{
+		name = "skill.toolman.attack",
 		type = "effect",
 		cooldown = 1,
 		remain = 0,
@@ -21,14 +22,16 @@ return function()
 		use = function(self)
 			local entity = self.owner
 			local area = hexagon.adjacent(entity.pos)
-			entity.map:damage(entity.team, area, {
-				damage = 100,
+			entity.map:damage(entity, area, {
+				ratio = 1,
 				element = "physical",
-				accuracy = 6,
+				accuracy = true,
 			})
 
 			return true
 		end,
 	}})
+
+	obj.energy = 0
 	return obj
 end

@@ -23,14 +23,14 @@ local priority = {
 }
 
 local function common_tick(obj)
-	if obj.duration then
+	if obj.remain then
+		obj.remain = math.max(obj.remain - 1, 0)
+	elseif obj.duration then
 		if obj.duration <= 0 then
 			return false
 		else
 			obj.duration = obj.duration - 1
 		end
-	elseif obj.remain then
-		obj.remain = math.max(obj.remain - 1, 0)
 	end
 	return true
 end
@@ -133,7 +133,7 @@ local function move(entity, waypoint)
 			return false
 		end
 	end
-	map:ui(entity, "move", waypoint)
+	map:event(entity, "move", waypoint)
 	entity.pos = pos
 	return true
 end
@@ -143,29 +143,26 @@ local function teleport(entity, target)
 	if target[1] > map.scale or map:get(target) then
 		return false
 	end
-	map:ui(entity, "teleport", target)
+	map:event(entity, "teleport", target)
 	entity.pos = target
 	return true
 end
 
-local function heal(entity, heal)
+local function heal(entity, heal, overcap)
 	if entity.health >= entity.health_cap then
 		return 0
 	end
-	local val = heal.heal or heal.ratio * entity.health_cap
-	if heal.max_cap then
-		val = math.min(val, heal.max_cap)
-	end
-	val = math.floor(math.max(val, heal.min_cap or 0))
+
+	heal = math.floor(heal)
 
 	if not heal.overcap then
 		local req = math.max(0, entity.health_cap - entity.health)
-		val = math.max(req, val)
+		heal = math.min(req, heal)
 	end
 
-	map:ui(entity, "heal", val)
-	entity.health = math.floor(entity.health + val)
-	return val
+	map:event(entity, "heal", heal)
+	entity.health = math.floor(entity.health + heal)
+	return heal
 end
 
 local function miss(speed, accuracy)
@@ -183,7 +180,7 @@ local function damage(entity, damage)
 		return nil
 	end
 	if damage.accuracy and miss(entity.speed or 0, damage.accuracy) then
-		entity.map:ui(entity, "miss")
+		entity.map:event(entity, "miss")
 		return nil
 	end
 	local val
@@ -193,32 +190,31 @@ local function damage(entity, damage)
 		damage = util.copy_table(damage)
 		for i = 1, #entity.hook, 1 do
 			damage = entity.hook[i]:func(entity, damage)
-			if not damage or damage.damage == 0 then
+			if not damage then
 				return nil
 			end
 		end
 		local resist = entity.resistance[damage.element] or 0
 		val = damage.damage * (1 - resist)
 	end
-	if val == 0 then
-		return
-	end
 
-	entity.map:ui(entity, "damage", val, damage.element)
-	if damage.element == "mental" then
-		entity.sanity = math.max(0, math.floor(entity.sanity - val))
-	else
-		entity.health = math.floor(entity.health - val)
-	end
-	if not entity:alive() then
-		entity.map:kill(entity)
-		return val, entity.health_cap
+	entity.map:event(entity, "damage", val, damage.element)
+	if val then
+		if damage.element == "mental" then
+			entity.sanity = math.max(0, math.floor(entity.sanity - val))
+		else
+			entity.health = math.floor(entity.health - val)
+		end
+		if not entity:alive() then
+			entity.map:kill(entity)
+			return val, entity.health_cap
+		end
 	end
 	return val
 end
 
 local function generate(entity, power)
-	entity.map:ui(entity, "generate", power)
+	entity.map:event(entity, "generate", power)
 	entity.energy = math.floor(math.min(entity.energy_cap, entity.energy + power))
 end
 
@@ -261,7 +257,7 @@ local function action(entity, skill, ...)
 	local res = skill:use(...)
 
 	if res then
-		entity.map:ui(entity, "skill", skill)
+		entity.map:event(entity, "skill", skill)
 
 		skill.remain = skill.cooldown
 		entity.energy = entity.energy - cost

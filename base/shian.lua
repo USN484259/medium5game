@@ -1,79 +1,58 @@
+local cfg = require("config").entity.shian
 local util = require("util")
 local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
-local template = {
-	element = "earth",
-	health_cap = 600,
-	speed = 2,
-	accuracy = 2,
-	power = 800,
-	sight = 2,
-	energy_cap = 1000,
-	generator = 100,
-	resistance = {
-		physical = 0.6,
-		fire = 0.7,
-		water = 0.4,
-		air = 0.8,
-		earth = 0.8,
-		ether = 0.3,
-		mental = 0.6,
-	},
-	quiver = {
-		name = "earth",
-		cost = 60,
-		range = 5,
-		single = function(entity, target)
-			entity.map:damage(entity.team, target, {
-				damage = entity.power * 2,
-				element = "earth",
-			})
-		end,
 
-		area = function(entity, area)
-			entity.map:damage(entity.team, area, {
-				damage = 200,
-				element = "earth",
-			})
-		end,
-	},
+local quiver = {
+	name = "quiver.earth",
+	element = "earth",
+	cost = cfg.quiver.single.cost,
+	range = cfg.quiver.single.range,
+	shots = cfg.quiver.single.shots,
+	single = function(entity, target)
+		entity.map:damage(entity, target, cfg.quiver.single.damage)
+	end,
+
+	area = function(entity, area)
+		entity.map:damage(entity, area, cfg.quiver.area.damage)
+	end,
 }
 
+
+
 local buff_apple = {
-	name = "apple",
+	name = "buff.shian.apple",
 	priority = core.priority.stat,
-	duration = 4,
+	duration = cfg.item.apple.duration,
 	tick = {{
 		core.priority.pre_stat, function(self)
 			local entity = self.owner
-			if self.duration > 1 then
-				entity.generator = entity.generator * 2
-				entity.power = entity.power * 9 // 8
+			local t = cfg.item.apple
+
+			if self.duration >= (t.duration - t.boost_duration) then
+				entity.generator = entity.generator * t.generator_boost
+				entity.power = entity.power * t.power_boost
 			end
 			return true
 		end
 	}, {
 		core.priority.damage, function(self)
 			local entity = self.owner
-			core.damage(entity, {
-				damage = 5,
-				element = "mental",
-				real = true,
-			})
+			core.damage(entity, cfg.item.apple.damage)
 			return true
 		end
 	}}
 }
 
 local buff_shield = {
-	name = "shield",
+	name = "buff.shian.shield",
 	tick = {{
 		core.priority.stat, function(self)
 			local entity = self.owner
 			if entity.inventory[1]:get() == "shield" and not entity.status.ultimate then
-				entity.speed = math.floor(entity.speed / 2)
+				entity.speed = math.floor(entity.speed * cfg.item.shield.speed_ratio)
 			end
 			return true
 		end,
@@ -84,20 +63,21 @@ local buff_shield = {
 			if entity.inventory[1]:get() ~= "shield" or entity.status.down or entity.status.ultimate then
 				return
 			end
-			local list = entity.map:get_area(hexagon.range(entity.pos, 1))
+			local t = cfg.item.shield
+			local list = entity.map:get_area(hexagon.range(entity.pos, t.radius))
 			for k, e in pairs(list) do
 				if e.team == entity.team then
 					core.hook(e, {
-						name = "shield",
+						name = "hook.shian.shield",
 						priority = core.priority.shield,
 						origin = entity,
 						func = function(self, entity, damage)
 							local origin = self.origin
 							local blk
-							-- absorb 2 damage using 1 energy
-							blk, damage = core.shield(damage, 2 * origin.energy)
-							origin.map:ui(origin, "shield", blk, origin.inventory[1])
-							origin.energy = origin.energy - blk // 2
+							-- absorb <efficiency> damage using 1 energy
+							blk, damage = core.shield(damage, t.energy_efficiency * origin.energy, t.absorb_efficiency)
+							origin.map:event(origin.inventory[1], "shield", blk)
+							origin.energy = math.floor(origin.energy - blk / t.energy_efficiency)
 							return damage
 						end
 					})
@@ -108,36 +88,39 @@ local buff_shield = {
 }
 
 local buff_final_guard = {
-	name = "final_guard",
-	duration = 4,
+	name = "buff.shian.final_guard",
+	duration = cfg.skill.final_guard.duration,
 
 	tick = {{
 		core.priority.ultimate, function(self)
 			local entity = self.owner
+			local t = cfg.skill.final_guard
+
 			entity.status.ultimate = true
 			entity.generator = 0
 			entity.speed = 0
 			for k, v in pairs(entity.resistance) do
-				entity.resistance[k] = math.min(0.2, v)
+				entity.resistance[k] = math.min(v, t.max_resistance)
 			end
 
 			local list = entity.map:get_team(entity.team)
 			for k, e in pairs(list) do
 				core.hook(e, {
-					name = "final_guard",
+					name = "hook.shian.final_guard",
 					priority = core.priority.shield,
 					origin = entity,
 					func = function(self, entity, damage)
 						local origin = self.origin
 						local blk
-						-- absorb 2 damage using 1 energy or 1 health
-						blk, damage = core.shield(damage, 2 * origin.energy)
-						origin.map:ui(origin, "shield", blk)
-						origin.energy = origin.energy - blk // 2
+						-- absorb <efficiency> damage using 1 energy
+						blk, damage = core.shield(damage, t.energy_efficiency * origin.energy)
+						origin.map:event(origin, "shield", blk)
+						origin.energy = origin.energy - blk // t.energy_efficiency
 
 						if damage then
+							-- absorb <efficiency> damage using 1 health
 							core.damage(origin, {
-								damage = damage.damage / 2,
+								damage = damage.damage / t.blood_efficiency,
 								element = damage.element,
 								real = true,
 							})
@@ -153,27 +136,17 @@ local buff_final_guard = {
 }
 
 local skill_move = {
-	name = "move",
+	name = "skill.shian.move",
 	type = "waypoint",
-	cooldown = 1,
 	remain = 0,
-	enable = true,
-	cost = 30,
-	power_req = 200,
-	step = 1,
 
 	update = function(self)
 		local entity = self.owner
 		local mode = entity.inventory[1]:get()
-		if mode == "shield" then
-			self.cost = 50
-			self.cooldown = 2
-		else
-			self.cost = 30
-			self.cooldown = 1
-		end
 
-		core.skill_update(self)
+		util.merge_table(self, cfg.skill.move[mode])
+
+		self.enable = core.skill_update(self) and not entity.moved
 	end,
 	use = function(self, waypoint)
 		local entity = self.owner
@@ -182,55 +155,48 @@ local skill_move = {
 			return false
 		end
 
-		return core.move(entity, waypoint)
+		local res = core.move(entity, waypoint)
+		if res then
+			entity.moved = true
+		end
+
+		return res
 	end,
 }
 
 local skill_attack = {
-	name = "smash",
+	name = "skill.shian.attack",
 	type = "direction",
-	cooldown = 2,
 	remain = 0,
-	enable = true,
-	cost = 200,
-	power_req = 400,
 
 	update = function(self)
 		local entity = self.owner
 		local mode = entity.inventory[1]:get()
+		local t = cfg.skill.attack[mode]
+
+		self.cooldown = t.cooldown
+		self.cost = t.cost
+		self.power_req = t.power_req
 
 		if mode == "hammer" then
-			self.name = "smash"
+			self.name = "skill.shian.smash"
 			self.use = function(self, direction)
 				local entity = self.owner
 				local target = hexagon.direction(entity.pos, direction)
-				entity.map:damage(entity.team, { target }, {
-					damage = entity.power,
-					element = "physical",
-					accuracy = entity.accuracy,
-					type = "ground",
-				}, buff.insert, "down", 1)
+				entity.map:damage(entity, { target }, t.damage, buff.insert, "down", t.damage.down_duration)
 
-				local splash = hexagon.range(target, 1)
+				local splash = hexagon.range(target, t.splash.radius)
 
-				entity.map:damage(entity.team, splash, {
-					damage = entity.power / 10,
-					element = "earth",
-				})
+				entity.map:damage(entity, splash, t.splash)
 
 				return true
 			end
 		elseif mode == "shield" then
-			self.name = "spike"
+			self.name = "skill.shian.spike"
 			self.use = function(self, direction)
 				local entity = self.owner
-
-				local target = hexagon.fan(entity.pos, 2, direction + 5, direction + 7)
-				entity.map:damage(entity.team, target, {
-					damage = entity.power / 5,
-					element = "earth",
-					type = "ground",
-				}, buff.insert, "block", entity.power / 2, 1)
+				local target = hexagon.fan(entity.pos, t.extent, direction + 6 - t.angle, direction + 6 + t.angle)
+				entity.map:damage(entity, target, t.damage, buff.insert, "block", entity.power * t.block.ratio, t.block.duration)
 
 				return true
 			end
@@ -240,14 +206,11 @@ local skill_attack = {
 	end,
 }
 
-local skill_transform = {
-	name = "transform",
+local skill_transform = util.merge_table({
+	name = "skill.shian.transform",
 	type = "toggle",
-	cooldown = 1,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	item = "yankai",
+	item = "item.shian.yankai",
 
 	update = core.skill_update,
 	use = function(self)
@@ -255,18 +218,12 @@ local skill_transform = {
 		entity.inventory[1]:next()
 		return true
 	end,
-}
+}, cfg.skill.transform)
 
-local skill_cannon = {
-	name = "rock_cannon",
+local skill_cannon = util.merge_table({
+	name = "skill.shian.cannon",
 	type = "target",
-	cooldown = 5,
 	remain = 0,
-	enable = true,
-	cost = 500,
-	power_req = 600,
-
-	range = { 2, 5 },
 
 	update = function(self)
 		local entity = self.owner
@@ -282,38 +239,23 @@ local skill_cannon = {
 			return false
 		end
 
-		local res = entity.map:damage(entity.team, { target }, {
-			damage = entity.power,
-			element = "physical",
-			accuracy = entity.accuracy,
-		}, buff.insert, "down", 1)
+		local res = entity.map:damage(entity, { target }, self.damage, buff.insert, "down", self.damage.down_duration)
 		if res > 0 then
 			-- extra damage to flying target
-			entity.map:damage(entity.team, { target }, {
-				damage = entity.power,
-				element = "physical",
-				type = "air",
-			})
+			entity.map:damage(entity, { target }, self.air_extra)
 		end
 
-		local splash = hexagon.range(target, 1)
-
-		entity.map:damage(entity.team, splash, {
-			damage = entity.power / 10,
-			element = "earth",
-		})
+		local area = hexagon.range(target, self.splash.radius)
+		entity.map:damage(entity, area, self.splash)
 
 		return true
 	end,
-}
+}, cfg.skill.cannon)
 
-local skill_apple = {
-	name = "eat_apple",
+local skill_apple = util.merge_table({
+	name = "skill.shian.apple",
 	type = "effect",
-	cooldown = 0,
 	remain = 0,
-	enable = true,
-	cost = 0,
 
 	update = function(self)
 		local entity = self.owner
@@ -322,28 +264,21 @@ local skill_apple = {
 	use = function(self)
 		local entity = self.owner
 
-		core.generate(entity, 200)
+		core.generate(entity, self.instant.generate)
 
-		core.damage(entity, {
-			damage = 10,
-			element = "mental",
-			real = true,
-		})
+		core.damage(entity, self.instant.damage)
 		buff.insert(entity, buff_apple)
 		local apple = entity.inventory[2]
 		apple.remain = apple.cooldown
 
 		return true
 	end,
-}
+}, cfg.skill.apple)
 
-local skill_final_guard = {
-	name = "final_guard",
+local skill_final_guard = util.merge_table({
+	name = "skill.shian.final_guard",
 	type = "effect",
-	cooldown = 20,
 	remain = 0,
-	enable = true,
-	cost = 0,
 
 	update = core.skill_update,
 	use = function(self)
@@ -353,10 +288,10 @@ local skill_final_guard = {
 
 		return true
 	end,
-}
+}, cfg.skill.final_guard)
 
 return function()
-	local shian = core.new_character("shian", template, {
+	local shian = core.new_character("entity.shian", cfg.template, {
 		skill_move,
 		skill_attack,
 		skill_transform,
@@ -364,10 +299,11 @@ return function()
 		skill_apple,
 		skill_final_guard,
 	})
+	shian.quiver = quiver
 
 	table.insert(shian.inventory, {
-		name = "yankai",
-		modes = { "hammer", "shield" },
+		name = "item.shian.yankai",
+		modes = cfg.item.shield.modes,
 		select = 1,
 		tick = function(self)
 		end,
@@ -380,9 +316,9 @@ return function()
 
 	})
 	table.insert(shian.inventory, {
-		name = "apple",
-		cooldown = 5,
-		remain = 0,
+		name = "item.shian.apple",
+		cooldown = cfg.item.apple.cooldown,
+		remain = cfg.item.apple.initial,
 		tick = core.common_tick,
 	})
 

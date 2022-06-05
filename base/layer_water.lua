@@ -1,3 +1,4 @@
+local cfg = require("config").layer.water
 local util = require("util")
 local core = require("core")
 local hexagon = require("hexagon")
@@ -10,11 +11,11 @@ get:
 	pos, "downpour"		internal, check downpour effect
 set:
 	"depth", pos, diff	change water depth
-	"downpour", team, area, duration, power	downpour effect
+	"downpour", {team, pos, radius, duration, power, bubble_duration}	downpour effect
 
 --]]
 
-return function(map)
+return function(map, layer_info)
 	local layer = {
 		map = map,
 		depth_table = {},
@@ -36,22 +37,29 @@ return function(map)
 			local depth = self:get(entity.pos)
 			if depth then
 				buff.insert_notick(entity, "wet", 1)
-
-				if depth > 1000 then
+				if depth > cfg.drown_depth then
 					buff.insert_notick(entity, "drown")
 				end
 			end
 
-			local f = self:get(entity.pos, "downpour")
-			if f then
-				buff.insert_notick(entity, "bubble", f.team, f.power, 2)
+			local l = self:get(entity.pos, "downpour")
+			table.sort(l, function(a, b)
+				if a.team == b.team then
+					return false
+				end
+				return a.team == entity.team
+			end)
+			for i, f in ipairs(l) do
+				buff.insert_notick(entity, "bubble", f.team, f.power, f.bubble_duration)
 			end
 		end,
 		contact = function(self, seed)
 			if seed.element == "fire" then
-				local f = self:get(seed.pos, "downpour")
-				if f and f.team ~= seed.team then
-					return nil
+				local l = self:get(seed.pos, "downpour")
+				for i, f in ipairs(l) do
+					if f and f.team ~= seed.team then
+						return nil
+					end
 				end
 			end
 			return seed
@@ -65,11 +73,13 @@ return function(map)
 			end
 
 			if cmd == "downpour" then
+				local res = {}
 				for k, v in pairs(self.downpour_list) do
-					if hexagon.cmp(v.pos, pos) then
-						return v
+					if hexagon.distance(v.pos, pos, v.radius) then
+						table.insert(res, v)
 					end
 				end
+				return res
 			else
 				for k, v in pairs(self.depth_table) do
 					if hexagon.cmp(v.pos, pos) and v.depth > 0 then
@@ -105,67 +115,20 @@ return function(map)
 					return 0
 				end
 			elseif cmd == "downpour" then
-				local team, area, duration, power = ...
-				for k, p in pairs(area) do
-					local f = {
-						team = team,
-						pos = p,
-						duration = duration,
-						power = power,
-					}
-					local k, v = util.find(self.downpour_list, f, function(a, b)
-						return hexagon.cmp(a.pos, b.pos)
-					end)
-
-					if not v then
-						table.insert(self.downpour_list, f)
-					elseif v.team == team then
-						v.power = math.max(v.power, f.power)
-						v.duration = v.duration + f.duration
-					elseif v.power <= f.power then
-						table.remove(self.downpour_list, k)
-						f.power = f.power - v.power
-						if f.power > 0 then
-							table.insert(self.downpour_list, f)
-						end
-					else
-						v.power = v.power - f.power
-					end
-				end
+				local info = ...
+				table.insert(self.downpour_list, info)
 			else
 				error(cmd)
 			end
 		end,
 	}
 
-	-- FIXME map generation
-	for i = 1, math.max(1, map.scale // 4), 1 do
-		local d = util.random("uniform", 0, map.scale)
-		local i = util.random("uniform", 0, math.max(d * 6 - 1, 0))
-		local r = util.random("uniform", 1, 2)
-		local s = util.random("uniform", 100, 4000)
-
-		local area = hexagon.ring({d, i}, r)
-
-		for r = 1, #area, 1 do
-			for k, p in pairs(area[r]) do
-				if p[1] <= map.scale then
-					local val = {
-						pos = p,
-						depth = s // r,
-					}
-					local x, v = util.find(layer.depth_table, val, function(a, b)
-						return hexagon.cmp(a.pos, b.pos)
-					end)
-
-					if x then
-						v.depth = v.depth + val.depth
-					else
-						table.insert(layer.depth_table, val)
-					end
-				end
-			end
-		end
+	for i = 1, #layer_info, 1 do
+		local w = layer_info[i]
+		util.unique_insert(layer.depth_table, { pos = w[1], depth = w[2] }, function(a, b)
+			return hexagon.cmp(a.pos, b.pos)
+		end)
 	end
+
 	return layer
 end

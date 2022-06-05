@@ -45,7 +45,21 @@ local function get_team(self, team)
 	return list
 end
 
-local function damage(self, team, area, damage, func, ...)
+local function damage(self, src, area, damage, func, ...)
+	damage = util.copy_table(damage)
+
+	if damage.ratio then
+		damage.damage = damage.ratio * src.power
+	end
+	if damage.accuracy and type(damage.accuracy) ~= "number" then
+		damage.accuracy = src.accuracy
+	end
+
+	local team = 0
+	if src then
+		team = src.team
+	end
+
 	local count = 0
 	local killed = {}
 	for k, p in pairs(area) do
@@ -66,11 +80,28 @@ local function damage(self, team, area, damage, func, ...)
 	return count, killed
 end
 
-local function heal(self, team, area, heal, func, ...)
+local function heal(self, src, area, heal, func, ...)
 	for k, p in pairs(area) do
 		local e = self:get(p)
-		if e and e.team == team then
-			core.heal(e, heal)
+		if e and e.team == src.team then
+			local val
+
+			if heal.src_ratio then
+				val = src.power * heal.src_ratio
+			elseif heal.dst_ratio then
+				val = e.health_cap * heal.dst_ratio
+			else
+				val = heal.heal or 0
+			end
+
+			if heal.max_cap then
+				val = math.min(val, heal.max_cap)
+			end
+			if heal.min_cap then
+				val = math.max(val, heal.min_cap)
+			end
+
+			core.heal(e, val, heal.overcap)
 			if func then
 				func(e, ...)
 			end
@@ -78,15 +109,15 @@ local function heal(self, team, area, heal, func, ...)
 	end
 end
 
-local function spawn(self, team, name, pos)
+local function spawn(self, team, name, pos, ...)
 	if self:get(pos) then
 		return nil
 	end
 	local obj
 	if type(name) == "string" then
-		obj = require(name)()
+		obj = require(name)(...)
 	else
-		obj = name()
+		obj = name(...)
 	end
 
 	obj.map = self
@@ -94,7 +125,7 @@ local function spawn(self, team, name, pos)
 	obj.pos = pos
 
 	table.insert(self.entities, obj)
-	self:ui(obj, "spawn")
+	self:event(obj, "spawn")
 
 	return obj
 end
@@ -106,7 +137,7 @@ local function kill(self, obj)
 				obj:death()
 			end
 			table.remove(self.entities, k)
-			self:ui(obj, "kill")
+			self:event(obj, "kill")
 			return true
 		end
 	end
@@ -124,7 +155,7 @@ local function contact(self, seed)
 				return nil
 			end
 			if not hexagon.cmp(seed.pos, orig_pos) then
-				self:ui(seed, "seed", orig_pos)
+				self:event(seed, "seed", orig_pos)
 				moved = true
 				break
 			end
@@ -175,23 +206,26 @@ local function tick(self, tid)
 		end
 	end
 
-	if tid > 0 and self.teams[tid].ui then
-		self.teams[tid].ui(self, tid)
+	if tid > 0 and self.teams[tid].ui and not self.teams[tid].ui(self, tid) then
+		return false
 	end
 
 	buff.defer(self:get_team(tid))
+	return true
 end
 
 local function run(self)
 	while true do
 		tick(self, 0)
 		for i = 1, #self.teams, 1 do
-			tick(self, i)
+			if not tick(self, i) then
+				return
+			end
 		end
 	end
 end
 
-local function ui(self, obj, cmd, ...)
+local function event(self, obj, cmd, ...)
 	local tid = obj.team
 	local func = self.teams[tid][cmd]
 	if func then
@@ -199,9 +233,9 @@ local function ui(self, obj, cmd, ...)
 	end
 end
 
-return function(scale, layer_list)
+return function(map_info)
 	local map = {
-		scale = scale,
+		scale = map_info.scale,
 		layers = {},
 		layer_map = {},
 		teams = {},
@@ -218,14 +252,24 @@ return function(scale, layer_list)
 		spawn = spawn,
 		kill = kill,
 		run = run,
-		ui = ui,
+		event = event,
 	}
 
-	for i = 1, #layer_list, 1 do
-		local n = layer_list[i]
-		local l = require("layer_" .. n)(map)
+	for i = 1, #map_info.layers, 1 do
+		local layer_info = map_info.layers[i]
+		local l = require("layer_" .. layer_info.name)(map, layer_info)
 		map.layers[i] = l
-		map.layer_map[n] = l
+		map.layer_map[layer_info.name] = l
+	end
+
+	for i = 1, #map_info.teams, 1 do
+		local team_info = map_info.teams[i]
+		local tid = new_team(map, team_info.ui)
+
+		for j = 1, #team_info, 1 do
+			local e = team_info[j]
+			spawn(map, tid, e[1], e[2], table.unpack(e, 3))
+		end
 	end
 
 	return map

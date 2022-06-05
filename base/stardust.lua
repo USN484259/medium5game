@@ -1,20 +1,21 @@
+local cfg = require("config").entity.stardust
 local util = require("util")
 local hexagon = require("hexagon")
 local core = require("core")
 local buff = require("buff")
 
-local function buff_ether_charge(charge)
+local function buff_charge(charge)
 	return {
-		name = "ether_charge",
+		name = "buff.stardust.charge",
 
 		initial = function(self)
 			local entity = self.owner
-			local p = buff.remove(entity, "ether_charge")
+			local p = buff.remove(entity, "buff.stardust.charge")
 			if p then
-				local val = p.charge + charge / 2
+				local val = cfg.charge.damage(p.charge, charge)
 				core.damage(entity, {
 					damage = val,
-					element = "ether",
+					element = "light",
 				})
 
 				return false
@@ -26,65 +27,48 @@ local function buff_ether_charge(charge)
 
 		tick = {{
 			core.priority.stat, function(self)
-				if self.charge <= 100 then
+				if self.charge <= cfg.charge.dissipate then
 					return false
 				end
 
-				self.charge = self.charge - 100
+				self.charge = self.charge - cfg.charge.dissipate
 				return true
 			end
 		}}
 	}
 end
 
-local template = {
-	element = "ether",
-	health_cap = 800,
-	speed = 6,
-	accuracy = 8,
-	power = 200,
-	sight = 3,
-	energy_cap = 65535,
-	generator = 0,
-	moved = false,
+local quiver = {
+	name = "quiver.light",
+	element = "light",
+	cost = cfg.quiver.single.cost,
+	range = cfg.quiver.single.range,
+	shots = cfg.quiver.single.shots,
+	single = function(entity, target)
+		entity.map:damage(entity, target, cfg.quiver.single.damage, buff.insert, buff_charge, cfg.quiver.single.charge)
+	end,
 
-	resistance = {
-		physical = 0.2,
-		fire = 0.2,
-		water = 0.2,
-		air = 0.2,
-		earth = 0.2,
-		ether = -0.2,
-		mental = 0.4,
-	},
-	quiver = {
-		name = "ether",
-		cost = 40,
-		single = function(entity, target)
-			entity.map:damage(entity.team, target, {
-				damage = 100,
-				element = "ether",
-			}, buff.insert, buff_ether_charge, 0)
-		end,
+	area = function(entity, area)
+		entity.map:damage(entity, area, cfg.quiver.area.damage, buff.insert, buff_charge, cfg.quiver.area.charge)
+	end,
 
-		area = function(entity, area)
-			entity.map:damage(entity.team, area, {
-				damage = 200,
-				element = "ether",
-			}, buff.insert, buff_ether_charge, 200)
-		end,
-
-	},
 }
 
-local buff_ether_energy = {
-	name = "ether_energy",
+local buff_generator = {
+	name = "buff.stardust.generator",
 	tick = {{
-		core.priority.pre_stat, function(self)
+		core.priority.first, function(self)
 			local entity = self.owner
 			if not entity.status.down then
-				local val = entity.map:layer_get("ether", entity.pos)
-				entity.generator = val
+				local src = entity.map:layer_get("light", entity.pos, "source")
+				local val = 0
+				for k, v in pairs(src) do
+					local dis = hexagon.distance(v.pos, entity.pos, cfg.generator.range)
+					if dis then
+						val = val + v.energy / (dis + 1) ^ cfg.generator.exp
+					end
+				end
+				entity.generator = math.floor(val)
 			end
 			return true
 		end
@@ -115,9 +99,9 @@ local buff_ether_energy = {
 }
 
 local buff_hover = {
-	name = "hover",
-	cost = 40,
-	power = 80,
+	name = "buff.stardust.hover",
+	cost = cfg.skill.hover.cost,
+	power = cfg.skill.hover.power_req,
 	tick = {{
 		core.priority.fly, function(self)
 			local entity = self.owner
@@ -140,23 +124,16 @@ local buff_hover = {
 }
 
 local skill_move = {
-	name = "move",
+	name = "skill.stardust.move",
 	type = "waypoint",
-	cooldown = 0,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	step = 1,
-	power_req = 80,
 
 	update = function(self)
 		local entity = self.owner
 		if entity.hover then
-			self.cost = 10
-			self.step = 3
+			util.merge_table(self, cfg.skill.move.hover)
 		else
-			self.cost = 0
-			self.step = 1
+			util.merge_table(self, cfg.skill.move.ground)
 		end
 
 		self.enable = core.skill_update(self) and not entity.moved
@@ -177,15 +154,10 @@ local skill_move = {
 	end,
 }
 
-local skill_attack = {
-	name = "attack",
+local skill_attack = util.merge_table({
+	name = "skill.stardust.attack",
 	type = "target",
-	cooldown = 0,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	range = 5,
-	power_req = 80,
 
 	update = function(self)
 		local entity = self.owner
@@ -204,11 +176,7 @@ local skill_attack = {
 		if not hexagon.distance(entity.pos, target, self.range) then
 			return false
 		end
-		entity.map:damage(entity.team, { target }, {
-			damage = entity.power,
-			element = "physical",
-			accuracy = entity.accuracy,
-		}, buff.insert, buff_ether_charge, entity.power)
+		entity.map:damage(entity, { target }, self.damage, buff.insert, buff_charge, entity.power * self.damage.ratio * self.charge_rate)
 
 		for i = 1, 2, 1 do
 			local item = entity.inventory[i]
@@ -220,23 +188,22 @@ local skill_attack = {
 
 		return true
 	end,
-}
+}, cfg.skill.attack)
 
 local skill_hover = {
-	name = "hover",
+	name = "skill.stardust.hover",
 	type = "toggle",
-	cooldown = 0,
+	cooldown = cfg.skill.hover.cooldown,
 	remain = 0,
 	enable = true,
-	cost = 40,
-	power_req = 40,
+	power_req = cfg.skill.hover.power_req,
 
 	update = function(self)
 		local entity = self.owner
 		if entity.hover then
 			self.cost = 0
 		else
-			self.cost = 40
+			self.cost = cfg.skill.hover.cost
 		end
 		self.enable = core.skill_update(self) and not entity.moved
 	end,
@@ -254,14 +221,9 @@ local skill_hover = {
 	end,
 }
 
-local skill_teleport = {
-	name = "teleport",
-	type = "target",
-	cooldown = 1,
+local skill_teleport = util.merge_table({
+	name = "skill.stardust.teleport",
 	remain = 0,
-	enable = true,
-	cost = 0,
-	power_req = 20,
 
 	update = function(self)
 		local entity = self.owner
@@ -289,6 +251,7 @@ local skill_teleport = {
 			elseif not core.teleport(entity, mirror.portal) then
 				return false
 			end
+			mirror.active = nil
 			mirror.portal = nil
 
 			return true
@@ -304,37 +267,31 @@ local skill_teleport = {
 		end
 
 		if entity.hover then
-			mirror.energy = mirror.energy_cap // 2
+			mirror.energy = mirror.energy_cap * (1 - self.energy_cost.solo)
 			mirror.portal = orig_pos
-			mirror.active = 1
+			mirror.active = self.portal_duration
 		else
 			for d = 1, 6, 1 do
 				local p = hexagon.direction(orig_pos, d)
 				local e = entity.map:get(p)
-				if e and e.team == entity.team and not e.status.ultimate then
+				if e and e.team == entity.team and (e.free_ultimate or not e.status.ultimate) then
 					local t = hexagon.direction(entity.pos, d)
 					core.teleport(e, t)
 				end
 			end
 
-			mirror.energy = 0
+			mirror.energy = mirror.energy_cap * (1 - self.energy_cost.group)
 		end
 
 		return true
 	end,
-}
+}, cfg.skill.teleport)
 
-local blackhole_duration = 2
 
-local skill_blackhole = {
-	name = "blackhole",
+local skill_blackhole = util.merge_table({
+	name = "skill.stardust.blackhole",
 	type = "target",
-	cooldown = 1,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	range = 6,
-	power_req = 20,
 
 	update = function(self)
 		local entity = self.owner
@@ -349,54 +306,54 @@ local skill_blackhole = {
 			return false
 		end
 
-		local area = hexagon.range(target, 1)
-		entity.map:layer_set("ether", "blackhole", entity.team, area, blackhole_duration, entity.power)
+		local info = {
+			team = entity.team,
+			pos = target,
+			radius = self.radius,
+			duration = self.duraion,
+			power = entity.power * self.power_ratio,
+			crush_threshold = self.crush_threshold,
+		}
+		entity.map:layer_set("light", "blackhole", info)
 
-		mirror.energy = mirror.energy_cap // 4
-		mirror.active = blackhole_duration
+		mirror.energy = mirror.energy_cap * (1 - self.energy_cost)
+		mirror.active = self.duration
 
 		return true
 	end,
-}
+}, cfg.skill.blackhole)
 
-local skill_lazer = {
-	name = "lazer",
+local skill_lazer = util.merge_table({
+	name = "skill.stardust.lazer",
 	type = "direction",
-	cooldown = 1,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	power_req = 100,
 
 	update = function(self)
 		local entity = self.owner
 		local prism = entity.inventory[4]
 
-		self.enable = core.skill_update(self) and (prism.energy >= prism.energy_cap // 2)
+		self.enable = core.skill_update(self) and (prism.energy >= prism.energy_cap * self.threshold)
 	end,
 	use = function(self, direction)
 		local entity = self.owner
 		local prism = entity.inventory[4]
 
-		local area = hexagon.fan(entity.pos, 2 * (entity.map.scale + 1), direction, direction)
-		entity.map:damage(entity.team, area, {
-			damage = prism.energy / 2,
-			element = "ether",
-		}, buff.insert, buff_ether_charge, prism.energy / 4)
+		local area = hexagon.line(entity.pos, direction, 2 * (entity.map.scale + 1))
+		local d = prism.energy * self.efficiency
+		entity.map:damage(entity, area, {
+			damage = d,
+			element = "light",
+		}, buff.insert, buff_charge, d * self.charge_rate)
 
 		prism.energy = 0
 		return true
 	end,
-}
+}, cfg.skill.lazer)
 
-local skill_starfall = {
-	name = "starfall",
+local skill_starfall = util.merge_table({
+	name = "skill.stardust.starfall",
 	type = "target",
-	cooldown = 20,
 	remain = 0,
-	enable = true,
-	cost = 0,
-	power_req = 80,
 
 	update = function(self)
 		local entity = self.owner
@@ -413,13 +370,19 @@ local skill_starfall = {
 	use = function(self, target)
 		local entity = self.owner
 
-		buff(entity, {
-			name = "starfall",
+		buff.insert(entity, {
+			name = "buff.stardust.starfall",
 			target = target,
+			power = entity.power,
+			duration = 0,
+			detonate_cfg = {
+				damage = self.damage,
+				trigger_radius = trigger_radius,
+			},
 			defer = {
 				core.priority.last, function(self)
 					local entity = self.owner
-					entity.map:layer_set("ether", "detonate", self.target, entity.power * 4)
+					entity.map:layer_set("light", "detonate", self.target, self.detonate_cfg, self.power)
 				end,
 			}
 		})
@@ -437,14 +400,14 @@ local skill_starfall = {
 		entity.hover = false
 		entity.status.fly = nil
 		entity.status.down = true
-		buff(entity, "down", 1)
+		buff.insert(entity, "down", self.down_duration)
 		return true
 
 	end,
-}
+}, cfg.skill.starfall)
 
 return function()
-	local stardust = core.new_character("stardust", template, {
+	local stardust = core.new_character("entity.stardust", cfg.template, {
 		skill_move,
 		skill_attack,
 		skill_hover,
@@ -453,23 +416,24 @@ return function()
 		skill_lazer,
 		skill_starfall,
 	})
+	stardust.quiver = quiver
 
 	stardust.hover = false
 
 	for i = 1, 2, 1 do
 		table.insert(stardust.inventory, {
-			name = "stars_lance",
-			energy_cap = 200,
-			energy = 200,
+			name = "item.stardust.lance",
+			energy_cap = cfg.item.lance.energy_cap,
+			energy = cfg.item.lance.initial,
 			tick = function(self)
 			end,
 		})
 	end
 
 	table.insert(stardust.inventory, {
-		name = "stars_mirror",
-		energy_cap = 600,
-		energy = 0,
+		name = "item.stardust.mirror",
+		energy_cap = cfg.item.mirror.energy_cap,
+		energy = cfg.item.mirror.initial,
 		tick = function(self)
 			if self.active and self.active > 0 then
 				self.active = self.active - 1
@@ -481,14 +445,14 @@ return function()
 	})
 
 	table.insert(stardust.inventory, {
-		name = "stars_prism",
-		energy_cap = 2000,
-		energy = 0,
+		name = "item.stardust.prism",
+		energy_cap = cfg.item.prism.energy_cap,
+		energy = cfg.item.prism.initial,
 		tick = function(self)
 		end,
 	})
 
-	buff.insert_notick(stardust, buff_ether_energy)
+	buff.insert_notick(stardust, buff_generator)
 	buff.insert_notick(stardust, buff_hover)
 
 	return stardust
