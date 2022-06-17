@@ -11,9 +11,19 @@ local element = {
 
 return {
 	ui = {
-		game_help = "",
+		game_title = "五维介质同人游戏",
+		game_exit = "退出游戏",
+		game_about = "(还没有想好游戏名)\n"
+			.. "作者 USN484259\n"
+			.. "鸣谢 @朦朦的卡比兽\n"
+			.. "项目页面 https://github.com/USN484259/medium5game\n"
+			.. "本项目代码使用MIT协议\n"
+			.. "‘五维介质’‘星尘’等注册商标为北京福托科技开发有限责任公司所有\n"
+			.. "使用-h参数启动游戏查看游戏选项",
 		game_win = "游戏结束",
 		game_lose = "游戏结束",
+		game_menu = "主菜单",
+		map_select = "选择地图，x退出游戏，?显示信息",
 		map_load = "加载地图",
 		map_failed = "无法加载地图",
 		map_exit = "退出地图",
@@ -190,6 +200,13 @@ return {
 			hammer = "锤形态",
 			shield = "盾形态",
 		},
+	},
+	buff = {
+		bubble = "水泡",
+	},
+	seed = {
+		feather = "菲尼克斯之羽",
+		bubble = "水泡",
 	},
 	layer = {
 		light = {

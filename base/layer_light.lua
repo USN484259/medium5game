@@ -1,7 +1,7 @@
-local util = require("util")
-local core = require("core")
-local hexagon = require("hexagon")
-local buff = require("buff")
+local util = require("core/util")
+local core = require("core/core")
+local hexagon = require("core/hexagon")
+local buff = require("core/buff")
 
 --[[
 get:
@@ -21,7 +21,6 @@ local function detonate(map, source_list, pos, cfg, power)
 	})
 
 	local queue = {}
-
 	for i = #source_list, 1, -1 do
 		local v = source_list[i]
 		local dis = hexagon.distance(v.pos, pos, cfg.trigger_radius)
@@ -32,7 +31,7 @@ local function detonate(map, source_list, pos, cfg, power)
 	end
 
 	for k, v in pairs(queue) do
-		detonate(map, source_list, pos, cfg, v.energy)
+		detonate(map, source_list, v.pos, cfg, v.energy)
 	end
 end
 
@@ -111,9 +110,8 @@ return function(map, layer_info)
 		end,
 	}
 
-	for i = 1, #layer_info, 1 do
-		local e = layer_info[i]
-		util.unique_insert(layer.source_list, { pos = e[1], energy = e[2] }, function(a, b)
+	for i, v in ipairs(layer_info) do
+		util.unique_insert(layer.source_list, util.copy_table(v), function(a, b)
 			return hexagon.cmp(a.pos, b.pos)
 		end)
 	end

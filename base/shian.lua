@@ -1,8 +1,8 @@
-local cfg = require("config").entity.shian
-local util = require("util")
-local hexagon = require("hexagon")
-local core = require("core")
-local buff = require("buff")
+local cfg = require("base/config").entity.shian
+local util = require("core/util")
+local hexagon = require("core/hexagon")
+local core = require("core/core")
+local buff = require("core/buff")
 
 
 local quiver = {
@@ -34,6 +34,8 @@ local buff_apple = {
 			if self.duration >= (t.duration - t.boost_duration) then
 				entity.generator = entity.generator * t.generator_boost
 				entity.power = entity.power * t.power_boost
+				entity.speed = entity.speed + t.speed_boost or 0
+				entity.accuracy = entity.accuracy + t.accuracy_boost or 0
 			end
 			return true
 		end
@@ -66,7 +68,7 @@ local buff_shield = {
 			local t = cfg.item.shield
 			local list = entity.map:get_area(hexagon.range(entity.pos, t.radius))
 			for k, e in pairs(list) do
-				if e.team == entity.team then
+				if e.team == entity.team and e.type == "character" then
 					core.hook(e, {
 						name = "hook.shian.shield",
 						priority = core.priority.shield,
@@ -76,7 +78,7 @@ local buff_shield = {
 							local blk
 							-- absorb <efficiency> damage using 1 energy
 							blk, damage = core.shield(damage, t.energy_efficiency * origin.energy, t.absorb_efficiency)
-							origin.map:event(origin.inventory[1], "shield", blk)
+							origin.map:event(origin, "shield", origin.inventory[1], blk)
 							origin.energy = math.floor(origin.energy - blk / t.energy_efficiency)
 							return damage
 						end
@@ -105,29 +107,31 @@ local buff_final_guard = {
 
 			local list = entity.map:get_team(entity.team)
 			for k, e in pairs(list) do
-				core.hook(e, {
-					name = "hook.shian.final_guard",
-					priority = core.priority.shield,
-					origin = entity,
-					func = function(self, entity, damage)
-						local origin = self.origin
-						local blk
-						-- absorb <efficiency> damage using 1 energy
-						blk, damage = core.shield(damage, t.energy_efficiency * origin.energy)
-						origin.map:event(origin, "shield", blk)
-						origin.energy = origin.energy - blk // t.energy_efficiency
+				if e.type == "character" then
+					core.hook(e, {
+						name = "hook.shian.final_guard",
+						priority = core.priority.shield,
+						origin = entity,
+						func = function(self, entity, damage)
+							local origin = self.origin
+							local blk
+							-- absorb <efficiency> damage using 1 energy
+							blk, damage = core.shield(damage, t.energy_efficiency * origin.energy)
+							origin.map:event(origin, "shield", origin, blk)
+							origin.energy = origin.energy - blk // t.energy_efficiency
 
-						if damage then
-							-- absorb <efficiency> damage using 1 health
-							core.damage(origin, {
-								damage = damage.damage / t.blood_efficiency,
-								element = damage.element,
-								real = true,
-							})
+							if damage then
+								-- absorb <efficiency> damage using 1 health
+								core.damage(origin, {
+									damage = damage.damage / t.blood_efficiency,
+									element = damage.element,
+									real = true,
+								})
+							end
+							return nil
 						end
-						return nil
-					end
-				})
+					})
+				end
 			end
 
 			return true
@@ -290,7 +294,7 @@ local skill_final_guard = util.merge_table({
 	end,
 }, cfg.skill.final_guard)
 
-return function()
+return function(override)
 	local shian = core.new_character("entity.shian", cfg.template, {
 		skill_move,
 		skill_attack,
@@ -298,7 +302,7 @@ return function()
 		skill_cannon,
 		skill_apple,
 		skill_final_guard,
-	})
+	}, override)
 	shian.quiver = quiver
 
 	table.insert(shian.inventory, {

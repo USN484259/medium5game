@@ -1,4 +1,4 @@
-local util = require("util")
+local util = require("core/util")
 
 local function cmp(a, b)
 	return a[1] == b[1] and a[2] == b[2]

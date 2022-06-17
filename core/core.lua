@@ -1,5 +1,5 @@
-local util = require("util")
-local hexagon = require("hexagon")
+local util = require("core/util")
+local hexagon = require("core/hexagon")
 
 local priority = {
 	-- common --
@@ -47,7 +47,7 @@ local function skill_update(skill)
 		enable = false
 	end
 
-	if skill.power_req and entity.power < skill.power_req then
+	if skill.power_req and entity.power < entity.template.power * skill.power_req then
 		enable = false
 	end
 
@@ -155,19 +155,19 @@ local function heal(entity, heal, overcap)
 
 	heal = math.floor(heal)
 
-	if not heal.overcap then
+	if not overcap then
 		local req = math.max(0, entity.health_cap - entity.health)
 		heal = math.min(req, heal)
 	end
 
-	map:event(entity, "heal", heal)
+	entity.map:event(entity, "heal", heal)
 	entity.health = math.floor(entity.health + heal)
 	return heal
 end
 
 local function miss(speed, accuracy)
-	local val = util.random("raw")
-	-- log("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. string.format("0x%X", val))
+	local val = util.random("raw") & 0xFF
+	-- print("accuracy/speed " .. accuracy .. '/' .. speed .. " rng " .. string.format("0x%X", val))
 	val = (val ~ (val >> 4)) & 0x0F
 	return val >= (8 + (accuracy - speed) * 2)
 end
@@ -234,6 +234,7 @@ local function tick(entity)
 	else
 		entity.active = false
 	end
+	entity.moved = false
 end
 
 local function action(entity, skill, ...)
@@ -270,6 +271,7 @@ end
 local function new_entity(name, template)
 	return util.merge_table({
 		name = name,
+		type = "entity",
 		template = template,
 		health = template.health_cap,
 
@@ -285,13 +287,15 @@ local function new_entity(name, template)
 	}, template)
 end
 
-local function new_character(name, template, skills)
+local function new_character(name, template, skills, override)
 	local obj = util.merge_table(new_entity(name, template), {
+		type = "character",
 		energy = template.generator,
 		sanity = 100,
 		inventory = {},
 		skills = {},
 		active = true,
+		moved = false,
 		tick = tick,
 		action = action,
 	})
@@ -300,6 +304,10 @@ local function new_character(name, template, skills)
 		local sk = util.copy_table(skills[i])
 		sk.owner = obj
 		table.insert(obj.skills, sk)
+	end
+
+	if override then
+		util.merge_table(obj, override)
 	end
 
 	return obj

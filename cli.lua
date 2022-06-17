@@ -1,4 +1,4 @@
-local hexagon = require("hexagon")
+local hexagon = require("core/hexagon")
 
 local color_table = {
 	black = 0,
@@ -107,8 +107,8 @@ local event_table = {
 	miss = function(map, obj)
 		print(translate(obj.name) .. ' ' .. hexagon.print(obj.pos) .. ' ' .. translate("event.miss"))
 	end,
-	shield = function(map, obj, blk)
-		print(translate(obj.name) .. ' ' .. translate("event.shield") .. ' ' .. blk)
+	shield = function(map, obj, sh, blk)
+		print(translate(sh.name) .. ' ' .. translate("event.shield") .. ' ' .. blk)
 	end,
 	generate = function(map, obj, power)
 		print(translate(obj.name) .. ' ' .. hexagon.print(obj.pos) .. ' ' .. translate("event.generate") .. ' ' .. power)
@@ -120,16 +120,6 @@ local event_table = {
 		print(translate(obj.name) .. ' ' .. translate("event.seed") .. ' ' .. hexagon.print(orig_pos) .. "===>" .. hexagon.print(obj.pos))
 	end,
 }
-
-local function show_banner(name, postfix)
-	local sep = "--------"
-	local str = '\n' .. color("green") .. sep .. translate(name)
-	if postfix then
-		str = str .. color() .. ' ' .. postfix .. color("green")
-	end
-	str = str .. sep .. color()
-	print(str)
-end
 
 local function show_map(map, func)
 	-- cli.show_banner("lang.map")
@@ -179,7 +169,7 @@ local function show_layer(map, layer, func)
 			end
 
 			for k, v in pairs(layer.storm) do
-				func(hexagon.print(v.center) .. "\t" .. translate("layer.air.storm") .. '\t' .. kv_string("lang.team", v.team) .. "\t" .. kv_string("lang.radius", v.radius))
+				func(hexagon.print(v.pos) .. "\t" .. translate("layer.air.storm") .. '\t' .. kv_string("lang.team", v.team) .. "\t" .. kv_string("lang.radius", v.radius))
 			end
 		end,
 		fire = function(layer)
@@ -325,7 +315,6 @@ return {
 	color = color,
 	translate = translate,
 	event_table = event_table,
-	show_banner = show_banner,
 	show_map = show_map,
 	show_layer = show_layer,
 	show_entity = show_entity,

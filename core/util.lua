@@ -33,26 +33,17 @@ local rng_table = {
 		}
 	end,
 
-	os = function()		-- FIXME currently only support linux-like /dev/urandom
-		local rng_handle = io.open("/dev/urandom")
-		if not rng_handle then
-			error("cannot open /dev/urandom")
-		end
+	os = function()
+		local platform_rng = require("lua_platform").random
 
 		return {
-			rng_handle = rng_handle,
-			length = 8,
+			length = 64,
 			raw = function(self)
-				local str = self.rng_handle:read(1)
-				return string.byte(str)
+				return platform_rng()
 			end,
 			uniform = function(self, a, b)
-				local list = table.pack(string.byte(self.rng_handle:read(8), 1, 8))
-				local val = 0
-				for i = 1, 8, 1 do
-					val = (val << 8) | list[i]
-				end
-				return a + math.abs(val) % (b - a + 1)
+				local val = platform_rng()
+				return a + math.abs(val % (b - a + 1))
 			end,
 		}
 	end

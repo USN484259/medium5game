@@ -1,11 +1,11 @@
-local cfg = require("config").entity
+local cfg = require("base/config").entity
 local cfg_bubble = cfg.bubble
 cfg = cfg.haiyi
 
-local util = require("util")
-local hexagon = require("hexagon")
-local core = require("core")
-local buff = require("buff")
+local util = require("core/util")
+local hexagon = require("core/hexagon")
+local core = require("core/core")
+local buff = require("core/buff")
 
 
 local function bubble_trigger(entity, buff_name, ...)
@@ -35,14 +35,14 @@ local quiver = {
 	shots = cfg.quiver.single.shots,
 	single = function(entity, target)
 		local t = cfg.quiver.single
-		entity.map:damage(entity, target, t.damage, buff.insert, "bubble", entity.team, entity.power * t.bubble.ratio, t.bubble.duration)
+		entity.map:damage(entity, target, t.damage, buff.insert, "bubble", entity.team, t.bubble.strength, t.bubble.duration)
 	end,
 
 	area = function(entity, area)
 		local t = cfg.quiver.area
-		entity.map:damage(entity, area, t.damage, buff.insert, "bubble", entity.team, entity.power * t.bubble.ratio, t.bubble.duration)
+		entity.map:damage(entity, area, t.damage, buff.insert, "bubble", entity.team, t.bubble.strength, t.bubble.duration)
 
-		entity.map:heal(entity, area, t.heal, buff.insert, "bubble", entity.team, entity.power * t.bubble.ratio, t.bubble.duration)
+		entity.map:heal(entity, area, t.heal, buff.insert, "bubble", entity.team, t.bubble.strength, t.bubble.duration)
 	end,
 }
 
@@ -54,19 +54,32 @@ end
 
 local function check_water(skill)
 	local entity = skill.owner
+
+	if entity.status.ultimate then
+		return true
+	end
+
 	local req = skill.water_cost
 	local stored_water = entity.inventory[2].water
 	local ground_water = 0
 
 	local area = hexagon.range(entity.pos, 1)
 	for k, p in pairs(area) do
-		ground_water = ground_water + (entity.map:layer_get("water", p) or 0)
+		local w = entity.map:layer_get("water", p) or 0
+		if w > cfg.item.wand.threshold then
+			ground_water = ground_water + w - cfg.item.wand.threshold
+		end
 	end
 	return stored_water + ground_water >= req
 end
 
 local function consume_water(skill)
 	local entity = skill.owner
+
+	if entity.status.ultimate then
+		return
+	end
+
 	local req = skill.water_cost
 	local ground_water = true
 
@@ -82,16 +95,16 @@ local function consume_water(skill)
 		local ring = hexagon.adjacent(entity.pos)
 		for k, p in pairs(ring) do
 			local val = entity.map:layer_get("water", p)
-			if val and val > 0 then
+			if val and val > cfg.item.wand.threshold then
 				count = count + 1
 			end
 		end
 
 		local unit
 		local val = entity.map:layer_get("water", entity.pos)
-		if val and val > 0 then
+		if val and val > cfg.item.wand.threshold then
 			unit = math.ceil(req / (count + cfg.item.wand.center_weight))
-			req = req - entity.map:layer_set("water", "depth", entity.pos, - math.min(req, cfg.item.wand.center_weight * unit))
+			req = req - entity.map:layer_set("water", "depth", entity.pos, - math.min(req, cfg.item.wand.center_weight * unit), cfg.item.wand.threshold)
 			ground_water = true
 		elseif count > 0 then
 			unit = math.ceil(req / count)
@@ -104,7 +117,7 @@ local function consume_water(skill)
 				if req <= 0 then
 					break
 				end
-				req = req - (entity.map:layer_set("water", "depth", p, -unit) or 0)
+				req = req - entity.map:layer_set("water", "depth", p, -unit, cfg.item.wand.threshold)
 				ground_water = true
 			end
 		end
@@ -133,8 +146,8 @@ local function area_strengthen(entity, area, stat)
 			if stat.speed then
 				e.speed = e.speed + stat.speed
 			end
-			if stat.power then
-				e.power = math.floor(e.power * stat.power)
+			if stat.power_ratio then
+				e.power = math.floor(e.power * stat.power_ratio)
 			end
 			if stat.resistance then
 				core.strengthen(e, stat.resistance.value, stat.resistance.cap)
@@ -305,7 +318,7 @@ local skill_attack = {
 
 	update = function(self)
 		local entity = self.owner
-		if in_water(entity) then
+		if entity.status.ultimate or in_water(entity) then
 			util.merge_table(self, cfg.skill.attack.water)
 		else
 			util.merge_table(self, cfg.skill.attack.ground)
@@ -326,7 +339,7 @@ local skill_attack = {
 				ratio = self.damage.ratio / #target_list,
 			}), bubble_trigger, "wet", self.damage.wet_duration)
 
-		entity.map:heal(entity.team, target_list, {
+		entity.map:heal(entity, target_list, {
 			src_ratio = math.min(self.heal.src_ratio / #target_list, self.heal.limit),
 		}, buff.insert, "wet", self.heal.wet_duration)
 
@@ -364,7 +377,7 @@ local skill_bubble = {
 
 	update = function(self)
 		local entity = self.owner
-		if in_water(entity) then
+		if entity.status.ultimate or in_water(entity) then
 			util.merge_table(self, cfg.skill.bubble.water)
 		else
 			util.merge_table(self, cfg.skill.bubble.ground)
@@ -387,7 +400,7 @@ local skill_bubble = {
 				team = entity.team,
 				power = entity.power * self.bubble.ratio,
 				pos = target_list[i],
-				range = 0,
+				radius = 0,
 			}
 
 			seed = entity.map:contact(seed)
@@ -410,21 +423,10 @@ local skill_revive = {
 	name = "skill.haiyi.revive",
 	remain = 0,
 
-	get_target = function(self, dir)
-		local entity = self.owner
-		if self.type == "direction" then
-			return { hexagon.direction(entity.pos, dir) }
-		elseif self.type == "effect" then
-			return water_area(entity, self.step)
-		else
-			error(self.type)
-		end
-	end,
-
 	update = function(self)
 		local entity = self.owner
 		if in_water(entity) then
-			self.type = "effect"
+			self.type = "target"
 			util.merge_table(self, cfg.skill.revive.water)
 		else
 			self.type = "direction"
@@ -434,10 +436,21 @@ local skill_revive = {
 		end
 		self.enable = core.skill_update(self) and check_water(self)
 	end,
-	use = function(self, ...)
+	use = function(self, arg)
 		local entity = self.owner
-		local tar = self:get_target(...)
-		entity.map:heal(entity.team, tar, self.heal, buff.insert, "bubble", entity.team, entity.power * self.bubble.ratio, self.bubble.duration)
+		local tar
+
+		if self.type == "direction" then
+			tar = hexagon.direction(entity.pos, arg)
+		elseif self.type == "target" then
+			tar = arg
+			local area = water_area(entity, self.step)
+			if not util.find(area, tar, hexagon.cmp) and not hexagon.distance(entity.pos, tar, 1) then
+				return false
+			end
+		end
+
+		entity.map:heal(entity, { tar }, self.heal, buff.insert, "bubble", entity.team, entity.power * self.bubble.ratio, self.bubble.duration)
 		consume_water(self)
 		return true
 	end,
@@ -472,7 +485,7 @@ local skill_downpour = util.merge_table({
 	end,
 }, cfg.skill.downpour)
 
-return function()
+return function(override)
 	local haiyi = core.new_character("entity.haiyi", cfg.template, {
 		skill_move,
 		skill_attack,
@@ -480,7 +493,7 @@ return function()
 		skill_bubble,
 		skill_revive,
 		skill_downpour,
-	})
+	}, override)
 	haiyi.quiver = quiver
 	haiyi.free_ultimate = true
 
@@ -501,9 +514,13 @@ return function()
 			if entity.status.ultimate then
 				return
 			end
-			assert(cfg.item.jellyfish.range == 0, "jellyfish range other than 0 not implemented")
-			local req = math.min(cfg.item.jellyfish.absorb, self.water_cap - self.water)
-			local val = entity.map:layer_set("water", "depth", entity.pos, -req)
+
+			local t = cfg.item.jellyfish
+
+			local w = entity.map:layer_get("water", entity.pos) or 0
+
+			local req = math.min(w * t.absorb_ratio, t.absorb_cap, self.water_cap - self.water)
+			local val = entity.map:layer_set("water", "depth", entity.pos, -math.floor(req), t.threshold)
 			if val then
 				-- core.log(self.name .. " absorb " .. val .. " water")
 				self.water = self.water + val

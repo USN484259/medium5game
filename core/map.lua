@@ -1,7 +1,7 @@
-local util = require("util")
-local core = require("core")
-local hexagon = require("hexagon")
-local buff = require("buff")
+local util = require("core/util")
+local core = require("core/core")
+local hexagon = require("core/hexagon")
+local buff = require("core/buff")
 
 local function new_team(self, handler)
 	table.insert(self.teams, handler or {})
@@ -115,7 +115,7 @@ local function spawn(self, team, name, pos, ...)
 	end
 	local obj
 	if type(name) == "string" then
-		obj = require(name)(...)
+		obj = require("base/" .. name)(...)
 	else
 		obj = name(...)
 	end
@@ -170,7 +170,11 @@ local function contact(self, seed)
 	return seed
 end
 
-local function tick(self, tid)
+local function tick(self, tid, round)
+	if self.teams[tid] and self.teams[tid].round_start then
+		self.teams[tid].round_start(self, tid, round)
+	end
+
 	-- layers tick
 	for i = 1, #self.layers, 1 do
 		self.layers[i]:tick(tid)
@@ -206,19 +210,27 @@ local function tick(self, tid)
 		end
 	end
 
-	if tid > 0 and self.teams[tid].ui and not self.teams[tid].ui(self, tid) then
-		return false
+	local res = true
+	if self.teams[tid] and self.teams[tid].round then
+		res = self.teams[tid].round(self, tid, round)
 	end
 
 	buff.defer(self:get_team(tid))
-	return true
+
+	if self.teams[tid] and self.teams[tid].round_end then
+		self.teams[tid].round_end(self, tid, round)
+	end
+
+	return res
 end
 
 local function run(self)
+	local round = 0
 	while true do
-		tick(self, 0)
+		round = round + 1
+		tick(self, 0, round)
 		for i = 1, #self.teams, 1 do
-			if not tick(self, i) then
+			if not tick(self, i, round) then
 				return
 			end
 		end
@@ -255,19 +267,16 @@ return function(map_info)
 		event = event,
 	}
 
-	for i = 1, #map_info.layers, 1 do
-		local layer_info = map_info.layers[i]
-		local l = require("layer_" .. layer_info.name)(map, layer_info)
+	for i, v in ipairs(map_info.layers) do
+		local l = require("base/layer_" .. v.name)(map, v)
 		map.layers[i] = l
-		map.layer_map[layer_info.name] = l
+		map.layer_map[v.name] = l
 	end
 
-	for i = 1, #map_info.teams, 1 do
-		local team_info = map_info.teams[i]
-		local tid = new_team(map, team_info.ui)
+	for i, t in ipairs(map_info.teams) do
+		local tid = new_team(map, t)
 
-		for j = 1, #team_info, 1 do
-			local e = team_info[j]
+		for i, e in ipairs(t) do
 			spawn(map, tid, e[1], e[2], table.unpack(e, 3))
 		end
 	end

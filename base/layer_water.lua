@@ -1,8 +1,8 @@
-local cfg = require("config").layer.water
-local util = require("util")
-local core = require("core")
-local hexagon = require("hexagon")
-local buff = require("buff")
+local cfg = require("base/config").layer.water
+local util = require("core/util")
+local core = require("core/core")
+local hexagon = require("core/hexagon")
+local buff = require("core/buff")
 
 --[[
 get:
@@ -10,7 +10,7 @@ get:
 	pos	get water
 	pos, "downpour"		internal, check downpour effect
 set:
-	"depth", pos, diff	change water depth
+	"depth", pos, diff, limit	change water depth
 	"downpour", {team, pos, radius, duration, power, bubble_duration}	downpour effect
 
 --]]
@@ -37,7 +37,7 @@ return function(map, layer_info)
 			local depth = self:get(entity.pos)
 			if depth then
 				buff.insert_notick(entity, "wet", 1)
-				if depth > cfg.drown_depth then
+				if depth >= cfg.drown_depth then
 					buff.insert_notick(entity, "drown")
 				end
 			end
@@ -90,16 +90,26 @@ return function(map, layer_info)
 		end,
 		set = function(self, cmd, ...)
 			if cmd == "depth" then
-				local pos, diff = ...
+				local pos, diff, limit = ...
 				for k, v in pairs(self.depth_table) do
 					if hexagon.cmp(pos, v.pos) then
-						local res = v.depth + diff
-						if res > 0 then
-							v.depth = res
-							return math.abs(diff)
+						if diff < 0 then
+							if limit and v.depth <= limit then
+								return 0
+							end
+
+							diff = math.min(v.depth - limit or 0, -diff)
+
+							v.depth = v.depth - diff
+
+							if v.depth == 0 then
+								table.remove(self.depth_table, k)
+							end
+
+							return diff
 						else
-							table.remove(self.depth_table, k)
-							return v.depth
+							v.depth = v.depth + diff
+							return diff
 						end
 					end
 				end
@@ -123,9 +133,8 @@ return function(map, layer_info)
 		end,
 	}
 
-	for i = 1, #layer_info, 1 do
-		local w = layer_info[i]
-		util.unique_insert(layer.depth_table, { pos = w[1], depth = w[2] }, function(a, b)
+	for i, v in ipairs(layer_info) do
+		util.unique_insert(layer.depth_table, util.copy_table(v), function(a, b)
 			return hexagon.cmp(a.pos, b.pos)
 		end)
 	end

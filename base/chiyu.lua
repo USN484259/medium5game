@@ -1,8 +1,8 @@
-local cfg = require("config").entity.chiyu
-local util = require("util")
-local hexagon = require("hexagon")
-local core = require("core")
-local buff = require("buff")
+local cfg = require("base/config").entity.chiyu
+local util = require("core/util")
+local hexagon = require("core/hexagon")
+local core = require("core/core")
+local buff = require("core/buff")
 
 local quiver = {
 	name = "quiver.fire",
@@ -107,10 +107,8 @@ local skill_attack = util.merge_table({
 		local entity = self.owner
 
 		local target = hexagon.direction(entity.pos, direction)
-		local res = ember_damage(entity, { target }, self.damage)
-		if res > 0 then
-			ember_damage(entity, { target }, self.extra, buff.insert, "burn", self.burn.damage, self.burn.duration)
-		end
+		ember_damage(entity, { target }, self.damage, buff.insert, "burn", self.burn.damage, self.burn.duration)
+
 		return true
 	end,
 }, cfg.skill.attack)
@@ -162,7 +160,7 @@ local skill_ignition = util.merge_table({
 			name = "seed.feather",
 			element = "fire",
 			team = entity.team,
-			power = self.damage or (entity.power * self.ratio),
+			power = self.damage or (entity.power * self.damage_ratio),
 			pos = target,
 			radius = self.radius,
 		}
@@ -268,7 +266,7 @@ local skill_phoenix = util.merge_table({
 	end,
 }, cfg.skill.phoenix)
 
-return function()
+return function(override)
 	local chiyu = core.new_character("entity.chiyu", cfg.template, {
 		skill_move,
 		skill_attack,
@@ -277,7 +275,7 @@ return function()
 		skill_sweep,
 		skill_nirvana,
 		skill_phoenix,
-	})
+	}, override)
 	chiyu.quiver = quiver
 
 	table.insert(chiyu.inventory, {

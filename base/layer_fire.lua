@@ -1,8 +1,8 @@
-local cfg = require("config").layer.fire
-local util = require("util")
-local core = require("core")
-local hexagon = require("hexagon")
-local buff = require("buff")
+local cfg = require("base/config").layer.fire
+local util = require("core/util")
+local core = require("core/core")
+local hexagon = require("core/hexagon")
+local buff = require("core/buff")
 
 --[[
 get:

@@ -1,8 +1,8 @@
-local cfg = require("config").entity.cangqiong
-local util = require("util")
-local hexagon = require("hexagon")
-local core = require("core")
-local buff = require("buff")
+local cfg = require("base/config").entity.cangqiong
+local util = require("core/util")
+local hexagon = require("core/hexagon")
+local core = require("core/core")
+local buff = require("core/buff")
 
 local quiver = {
 	name = "quiver.air",
@@ -26,6 +26,7 @@ local buff_storm = {
 			local entity = self.owner
 			entity.status.ultimate = true
 			entity.speed = math.floor(entity.speed * cfg.skill.storm.speed_ratio)
+			buff.remove(entity, "storm")
 			return true
 		end
 	}}
@@ -198,7 +199,7 @@ local skill_storm = util.merge_table({
 	end,
 }, cfg.skill.storm)
 
-return function()
+return function(override)
 	local cangqiong = core.new_character("entity.cangqiong", cfg.template, {
 		skill_move,
 		skill_attack,
@@ -207,7 +208,7 @@ return function()
 		skill_wind_control,
 		skill_arrow_rain,
 		skill_storm,
-	})
+	}, override)
 	cangqiong.quiver = quiver
 
 	table.insert(cangqiong.inventory, {

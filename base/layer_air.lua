@@ -1,7 +1,7 @@
-local util = require("util")
-local core = require("core")
-local hexagon = require("hexagon")
-local buff = require("buff")
+local util = require("core/util")
+local core = require("core/core")
+local hexagon = require("core/hexagon")
+local buff = require("core/buff")
 
 --[[
 get:
@@ -51,8 +51,8 @@ return function(map, layer_info)
 				end)
 				local storm = l[1]
 				if seed.team == storm.team then
-					seed.pos = storm.pos or seed.pos
-					seed.range = storm.range or seed.range
+					seed.pos = storm.pos
+					seed.radius = storm.radius
 				else
 					seed = nil
 				end
