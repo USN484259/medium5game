@@ -15,7 +15,7 @@ end
 
 local window = require("gui").new_window()
 
-local gl_map = require("gl/map").new_map(4, 0.1)
+local gl_map = require("gl/map").new_map(4, 500)
 window:add(gl_map)
 
 local overlay = {
@@ -31,11 +31,22 @@ gl_map:set({1, 2}, overlay)
 
 local gl_image = require("gl/image").new_image("resources/chiyu.png")
 
-gl_image.scale = 0.2
-gl_image.pos = {0.3, -0.5}
-
+gl_image.scale = 4
+gl_image.alpha = 0.6
+gl_image.pos = {3800, 1800}
 
 window:add(gl_image)
+
+local str = "Hello测试World!"
+
+local gl_text = require("gl/text").new_font("resources/wqy-zenhei.ttc", 256):new_text(str)
+
+gl_text.scale = 2
+gl_text.pos = {-5000, -4000}
+
+window:add(gl_text)
+
+
 
 while window:step() do end
 

@@ -3,15 +3,15 @@ local gl = require("moongl")
 local vertex_shader = [[
 #version 330 core
 
-uniform vec4 scale;
+uniform float ratio;
 uniform vec2 offset;
-layout(location=0) in vec4 pos;
+layout(location=0) in vec2 pos;
 layout(location=1) in vec4 in_color;
 out vec4 color;
 
 void main()
 {
-	gl_Position = (vec4(offset, 0.0, 0.0) + pos) * scale;
+	gl_Position = vec4((offset + pos) / 0x1000, 0.0, 1.0) * vec4(ratio, 1.0, 1.0, 1.0);
 	color = in_color;
 }
 ]]
@@ -108,7 +108,7 @@ local function tile_index(pos)
 end
 
 local prog
-local loc_scale
+local loc_ratio
 local loc_offset
 
 local function render(self, w, h)
@@ -116,7 +116,7 @@ local function render(self, w, h)
 	gl.bind_vertex_array(self.vertex)
 
 	gl.bind_buffer("array", self.color_buffer)
-	gl.uniform(loc_scale, "float", h / w, 1.0, 1.0, 1.0)
+	gl.uniform(loc_ratio, "float", h / w)
 	gl.buffer_sub_data("array", 0, gl.pack("float", self.bg_color))
 
 
@@ -155,27 +155,20 @@ local function set(self, pos, color)
 end
 
 local function new_map(ring, scale)
-	if not prog then
-		prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
-		loc_scale = gl.get_uniform_location(prog, "scale")
-		loc_offset = gl.get_uniform_location(prog, "offset")
-	end
-
-	local points = {0.0, 0.0, 0.0, 1.0}
+	local points = {0.0, 0.0}
 	for i = 0, 6, 1 do
 		local r = math.rad(60 * i - 30)
 		local x = scale * math.cos(r)
 		local y = scale * math.sin(r)
-		local t = {x, y, 0.0, 1.0}
 
-		table.move(t, 1, 4, 1 + #points, points)
+		table.move({x, y}, 1, 2, 1 + #points, points)
 	end
 
 	local v = gl.new_vertex_array()
 
 	local bp = gl.new_buffer("array")
 	gl.buffer_data("array", gl.pack("float", points), "static draw")
-	gl.vertex_attrib_pointer(0, 4, "float", false, 0, 0)
+	gl.vertex_attrib_pointer(0, 2, "float", false, 0, 0)
 	gl.enable_vertex_attrib_array(0)
 	gl.unbind_buffer("array")
 
@@ -204,7 +197,10 @@ local function new_map(ring, scale)
 	}
 end
 
+prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
+loc_ratio = gl.get_uniform_location(prog, "ratio")
+loc_offset = gl.get_uniform_location(prog, "offset")
 
-return {	
+return {
 	new_map = new_map,
 }
