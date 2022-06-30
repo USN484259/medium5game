@@ -11,21 +11,30 @@ local function step(self)
 	gl.clear("color")
 
 	local w, h = glfw.get_window_size(self.window)
+	local t = glfw.get_time()
 
-	for i, v in ipairs(self.layers) do
-		v:render(w, h)
+	for i, v in ipairs(self.cur_scene) do
+		v:render(t, w, h)
 	end
 
 	glfw.swap_buffers(self.window)
 	return true
 end
 
-local function add(self, obj, pos)
-	if pos then
-		table.insert(self.layers, pos, obj)
-	else
-		table.insert(self.layers, obj)
+local function scene(self, new_scene)
+	local res = self.cur_scene
+	if new_scene then
+		self.cur_scene = new_scene
 	end
+
+	return res
+end
+
+local function on_key(self, func, ...)
+	local args = {...}
+	glfw.set_key_callback(self.window, function(window, key, scancode, action)
+		func(self, key, action, table.unpack(args))
+	end)
 end
 
 local function on_resize(window, w, h)
@@ -51,9 +60,9 @@ local function new_window(w, h, title)
 
 	return {
 		window = window,
-		layers = {},
 		step = step,
-		add = add,
+		scene = scene,
+		on_key = on_key,
 	}
 end
 

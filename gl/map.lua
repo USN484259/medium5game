@@ -11,7 +11,7 @@ out vec4 color;
 
 void main()
 {
-	gl_Position = vec4((offset + pos) / 0x1000, 0.0, 1.0) * vec4(ratio, 1.0, 1.0, 1.0);
+	gl_Position = vec4((offset + pos) / 0x400, 0.0, 1.0) * vec4(ratio, 1.0, 1.0, 1.0);
 	color = in_color;
 }
 ]]
@@ -111,7 +111,7 @@ local prog
 local loc_ratio
 local loc_offset
 
-local function render(self, w, h)
+local function render(self, t, w, h)
 	gl.use_program(prog)
 	gl.bind_vertex_array(self.vertex)
 

@@ -13,7 +13,7 @@ out vec2 uv;
 
 void main()
 {
-	gl_Position = vec4((offset + pos * scale) / 0x1000, 0.0, 1.0) * vec4(aspect_ratio, 1.0, 1.0, 1.0);
+	gl_Position = vec4((offset + pos * scale) / 0x400, 0.0, 1.0) * vec4(aspect_ratio, 1.0, 1.0, 1.0);
 	uv = vertex_uv;
 }
 ]]
@@ -42,14 +42,36 @@ local loc_color
 
 local ft_lib
 
-local function render(self, w, h)
+local function render(self, t, w, h)
+	local new_list = {}
+	for i, v in ipairs(self.animation_list) do
+		if v:tick(self, t) then
+			table.insert(new_list, v)
+		end
+	end
+	self.animation_list = new_list
+
+	if self.hidden then
+		return
+	end
+
 	gl.use_program(prog)
-
 	gl.uniform(loc_ratio, "float", h / w)
-
 	gl.uniform(loc_color, "float", table.unpack(self.color))
 
 	local base = {self.pos[1], self.pos[2]}
+	local align = self.align or "center"
+	if align == "left" then
+
+	elseif align == "right" then
+		base[1] = base[1] - self.length
+	else
+		if align ~= "center" then
+			print("WARN", "unknown alignment " .. align)
+		end
+
+		base[1] = base[1] - self.length / 2
+	end
 
 	gl.active_texture(1)
 	gl.uniform(loc_texture, "int", 1)
@@ -58,7 +80,6 @@ local function render(self, w, h)
 	for i, g in ipairs(self.list) do
 		gl.bind_texture("2d", g.texture)
 
-		-- FIXME render based on CENTER of graph
 		local scale = {
 			self.scale * g.width / 2,
 			self.scale * g.height / 2,
@@ -81,9 +102,14 @@ local function render(self, w, h)
 	gl.use_program(0)
 end
 
+local function animation(self, anime, ...)
+	table.insert(self.animation_list, anime(self, ...))
+end
+
 local function new_text(self, str)
 
 	local list = {}
+	local length = 0
 	for p, c in utf8.codes(str) do
 		if not self.cp_table[c] then
 			self.face:load_char(c, ft.LOAD_RENDER)
@@ -113,16 +139,21 @@ local function new_text(self, str)
 
 		end
 
-		table.insert(list, self.cp_table[c])
+		local g = self.cp_table[c]
+		length = length + g.advance
+		table.insert(list, g)
 	end
 
 	return {
 		str = str,
 		list = list,
+		length = length,
 		scale = 1,
 		pos = {0, 0},
 		color = {0, 0, 0, 1},
 		render = render,
+		animation = animation,
+		animation_list = {}
 	}
 end
 

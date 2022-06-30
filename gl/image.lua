@@ -5,6 +5,7 @@ local vertex_shader = [[
 #version 330 core
 
 uniform float aspect_ratio;
+uniform mat2 rotation;
 uniform vec2 scale;
 uniform vec2 offset;
 layout(location=0) in vec2 pos;
@@ -13,7 +14,7 @@ out vec2 uv;
 
 void main()
 {
-	gl_Position = vec4((offset + pos * scale) / 0x1000, 0.0, 1.0) * vec4(aspect_ratio, 1.0, 1.0, 1.0);
+	gl_Position = vec4((offset + rotation * (pos * scale)) / 0x400, 0.0, 1.0) * vec4(aspect_ratio, 1.0, 1.0, 1.0);
 	uv = vertex_uv;
 }
 ]]
@@ -35,16 +36,36 @@ void main()
 local prog
 local vertex_array
 local loc_ratio
+local loc_rotation
 local loc_scale
 local loc_offset
 local loc_texture
 local loc_alpha
 
-local function render(self, w, h)
-	gl.use_program(prog)
+local image_table = {}
 
+local function render(self, t, w, h)
+	local new_list = {}
+	for i, v in ipairs(self.animation_list) do
+		if v:tick(self, t) then
+			table.insert(new_list, v)
+		end
+	end
+	self.animation_list = new_list
+
+	if self.hidden then
+		return
+	end
+
+	gl.use_program(prog)
 	gl.uniform(loc_ratio, "float", h / w)
 
+	local rad = math.rad(self.rotation)
+	local rotation = {
+		math.cos(rad), -math.sin(rad),
+		math.sin(rad), math.cos(rad),
+	}
+	gl.uniform_matrix(loc_rotation, "float", "2x2", true, table.unpack(rotation))
 
 	local scale = {
 		self.scale * self.width / 2,
@@ -68,6 +89,52 @@ local function render(self, w, h)
 	gl.use_program(0)
 end
 
+local function animation(self, anime, ...)
+	table.insert(self.animation_list, anime(self, ...))
+end
+
+local function new_image(path)
+	if not image_table[path] then
+		local t = gl.new_texture("2d")
+		-- gl.bind_texture("2d", t)
+
+		local image, w, h = img.load(path, "rgba")
+
+		gl.texture_image("2d", 0, "rgba", "rgba", "ubyte", image, w, h)
+
+		gl.texture_parameter("2d", "base level", 0)
+		gl.texture_parameter("2d", "max level", 0)
+		gl.texture_parameter('2d', 'wrap s', 'repeat')
+		gl.texture_parameter('2d', 'wrap t', 'repeat')
+		gl.texture_parameter('2d', 'min filter', 'linear')
+		gl.texture_parameter('2d', 'mag filter', 'linear')
+
+		-- gl.generate_mipmap("1d")
+		gl.unbind_texture("2d")
+
+		image_table[path] = {
+			texture = t,
+			width = w,
+			height = h,
+		}
+	end
+
+	local g = image_table[path]
+
+	return {
+		texture = g.texture,
+		width = g.width,
+		height = g.height,
+		pos = {0, 0},
+		rotation = 0,
+		scale = 1,
+		alpha = 1,
+		render = render,
+		animation = animation,
+		animation_list = {},
+	}
+end
+
 local points = {
 	-1.0, -1.0,
 	1.0, -1.0,
@@ -82,37 +149,9 @@ local uv = {
 	1.0, 0.0,
 }
 
-local function new_image(path)
-	local t = gl.new_texture("2d")
-	-- gl.bind_texture("2d", t)
-
-	local image, w, h = img.load(path, "rgba")
-
-	gl.texture_image("2d", 0, "rgba", "rgba", "ubyte", image, w, h)
-
-	gl.texture_parameter("2d", "base level", 0)
-	gl.texture_parameter("2d", "max level", 0)
-	gl.texture_parameter('2d', 'wrap s', 'repeat')
-	gl.texture_parameter('2d', 'wrap t', 'repeat')
-	gl.texture_parameter('2d', 'min filter', 'linear')
-	gl.texture_parameter('2d', 'mag filter', 'linear')
-
-	-- gl.generate_mipmap("1d")
-	gl.unbind_texture("2d")
-
-	return {
-		texture = t,
-		width = w,
-		height = h,
-		pos = {0, 0},
-		scale = 1,
-		alpha = 1,
-		render = render,
-	}
-end
-
 prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
 loc_ratio = gl.get_uniform_location(prog, "aspect_ratio")
+loc_rotation = gl.get_uniform_location(prog, "rotation")
 loc_scale = gl.get_uniform_location(prog, "scale")
 loc_offset = gl.get_uniform_location(prog, "offset")
 loc_texture = gl.get_uniform_location(prog, "tex")
