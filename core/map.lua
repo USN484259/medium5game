@@ -169,7 +169,7 @@ local function contact(self, seed)
 
 	return seed
 end
-
+--[[
 local function tick(self, tid, round)
 	if self.teams[tid] and self.teams[tid].round_start then
 		self.teams[tid].round_start(self, tid, round)
@@ -236,10 +236,65 @@ local function run(self)
 		end
 	end
 end
+--]]
+
+local function round_start(tid)
+	if self.teams[tid] and self.teams[tid].round_start then
+		self.teams[tid].round_start(self, tid, round)
+	end
+
+	-- layers tick
+	for i = 1, #self.layers, 1 do
+		self.layers[i]:tick(tid)
+	end
+
+	local team = self:get_team(tid)
+	for k, e in pairs(team) do
+		-- layers apply
+		for i = 1, #self.layers, 1 do
+			self.layers[i]:apply(e)
+		end
+
+		e.status = {}
+		e.hook = {}
+		e.immune = {}
+
+		for k, v in pairs(e.template) do
+			if type(v) == "table" then
+				e[k] = util.copy_table(v)
+			else
+				e[k] = v
+			end
+		end
+	end
+
+	buff.tick(team)
+
+	for k, e in pairs(team) do
+		if not e:alive() then
+			self:kill(e)
+		elseif e.tick then
+			e:tick()
+		end
+	end
+
+	if self.teams[tid] and self.teams[tid].round then
+		return self.teams[tid].round(self, tid, round)
+	end
+end
+
+local function round_end(tid)
+	buff.defer(self:get_team(tid))
+
+	if self.teams[tid] and self.teams[tid].round_end then
+		self.teams[tid].round_end(self, tid, round)
+	end
+end
 
 local function event(self, obj, cmd, ...)
-	local tid = obj.team
-	local func = self.teams[tid][cmd]
+	-- local tid = obj.team
+	-- local func = self.teams[tid][cmd]
+	local func = self.event_table[cmd]
 	if func then
 		func(self, obj, ...)
 	end
@@ -248,6 +303,7 @@ end
 return function(map_info)
 	local map = {
 		scale = map_info.scale,
+		event_table = map_info.event_table,
 		layers = {},
 		layer_map = {},
 		teams = {},
@@ -263,9 +319,12 @@ return function(map_info)
 		contact = contact,
 		spawn = spawn,
 		kill = kill,
-		run = run,
+		round_start = round_start,
+		round_end = round_end,
 		event = event,
 	}
+
+	event(map, map, "new_map")
 
 	for i, v in ipairs(map_info.layers) do
 		local l = require("base/layer_" .. v.name)(map, v)

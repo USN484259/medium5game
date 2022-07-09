@@ -1,6 +1,7 @@
 local gl = require("moongl")
+local misc = require("gl/misc")
 
-local vertex_shader = [[
+local vertex_shader = string.format([[
 #version 330 core
 
 uniform float ratio;
@@ -11,10 +12,10 @@ out vec4 color;
 
 void main()
 {
-	gl_Position = vec4((offset + pos) / 0x400, 0.0, 1.0) * vec4(ratio, 1.0, 1.0, 1.0);
+	gl_Position = vec4((offset + pos) / %d, 0.0, 1.0) * vec4(ratio, 1.0, 1.0, 1.0);
 	color = in_color;
 }
-]]
+]], misc.coordinate_radix)
 
 local fragment_shader = [[
 #version 330 core
@@ -28,39 +29,53 @@ void main()
 }
 ]]
 
-local function adjacent(pos, dir, scale)
-	local r = math.rad(60 * (dir - 1))
+local function tile_index(pos)
+	local d = pos[1]
+	if d == 0 then
+		return 0
+	end
+
+	return 3 * d * (d - 1) + pos[2] + 1
+end
+
+local function tile_pos(pos, size)
+	if pos[1] == 0 then
+		return {0, 0}
+	end
+	local sqrt3 = math.sqrt(3)
+	local dis = size * pos[1]
+	local dir = math.rad((pos[2] // pos[1]) * 60)
+	local pin = {
+		sqrt3 * dis * math.cos(dir),
+		sqrt3 * dis * math.sin(dir),
+	}
+
+	dis = size * (pos[2] % pos[1])
+	dir = dir + math.rad(120)
+	local off = {
+		sqrt3 * dis * math.cos(dir),
+		sqrt3 * dis * math.sin(dir),
+	}
+
 	return {
-		pos[1] + scale * math.sqrt(3) * math.cos(r),
-		pos[2] + scale * math.sqrt(3) * math.sin(r),
+		pin[1] + off[1],
+		pin[2] + off[2],
 	}
 end
 
-local function make_points(ring, scale)
-	local data = { {0, 0} }
+local function make_points(scale, size)
+	local points = { {0, 0} }
+	local pos = {1, 0}
 
-	local point = {1, 0}
-	local pos = adjacent({0, 0}, 1, scale)
-	local direction = 3
-
-	while point[1] <= ring do
-		table.insert(data, pos)
-
-		point[2] = point[2] + 1
-		pos = adjacent(pos, direction, scale)
-
-		if point[2] % point[1] == 0 then
-			direction = direction % 6 + 1
-		end
-		if point[2] // point[1] == 6 then
-			point[1] = point[1] + 1
-			point[2] = 0
-			pos = adjacent(pos, 1, scale)
-			direction = 3
+	while pos[1] <= scale do
+		table.insert(points, tile_pos(pos, size))
+		pos[2] = pos[2] + 1
+		if pos[2] // pos[1] == 6 then
+			pos[1] = pos[1] + 1
+			pos[2] = 0
 		end
 	end
-
-	return data
+	return points
 end
 
 local function make_color(base, overlay)
@@ -96,15 +111,6 @@ local function make_color(base, overlay)
 	table.move(overlay[1], 1, 4, #data + 1, data)
 
 	return data
-end
-
-local function tile_index(pos)
-	local d = pos[1]
-	if d == 0 then
-		return 0
-	end
-
-	return 3 * d * (d - 1) + pos[2] + 1
 end
 
 local prog
@@ -154,12 +160,18 @@ local function set(self, pos, color)
 	self.overlay[index] = color
 end
 
-local function new_map(ring, scale)
+local function new_map(scale, size)
+	if not prog then
+		prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
+		loc_ratio = gl.get_uniform_location(prog, "ratio")
+		loc_offset = gl.get_uniform_location(prog, "offset")
+	end
+
 	local points = {0.0, 0.0}
 	for i = 0, 6, 1 do
 		local r = math.rad(60 * i - 30)
-		local x = scale * math.cos(r)
-		local y = scale * math.sin(r)
+		local x = size * math.cos(r)
+		local y = size * math.sin(r)
 
 		table.move({x, y}, 1, 2, 1 + #points, points)
 	end
@@ -182,10 +194,12 @@ local function new_map(ring, scale)
 	gl.unbind_vertex_array()
 
 	local line_color = make_color({0.0, 0.0, 0.0, 1.0})
-	local points = make_points(ring, scale)
+	local points = make_points(scale, size)
 
 	return {
-		ring = ring,
+		layer = misc.layer.back,
+		scale = scale,
+		size = size,
 		points = points,
 		bg_color = bg_color,
 		line_color = line_color,
@@ -194,12 +208,11 @@ local function new_map(ring, scale)
 		color_buffer = bc,
 		set = set,
 		render = render,
+		tile = function(self, pos)
+			return tile_pos(pos, self.size)
+		end,
 	}
 end
-
-prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
-loc_ratio = gl.get_uniform_location(prog, "ratio")
-loc_offset = gl.get_uniform_location(prog, "offset")
 
 return {
 	new_map = new_map,

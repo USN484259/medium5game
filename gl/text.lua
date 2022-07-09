@@ -1,7 +1,8 @@
 local gl = require("moongl")
 local ft = require("moonfreetype")
+local misc = require("gl/misc")
 
-local vertex_shader = [[
+local vertex_shader = string.format([[
 #version 330 core
 
 uniform float aspect_ratio;
@@ -13,10 +14,10 @@ out vec2 uv;
 
 void main()
 {
-	gl_Position = vec4((offset + pos * scale) / 0x400, 0.0, 1.0) * vec4(aspect_ratio, 1.0, 1.0, 1.0);
+	gl_Position = vec4((offset + pos * scale) / %d, 0.0, 1.0) * vec4(aspect_ratio, 1.0, 1.0, 1.0);
 	uv = vertex_uv;
 }
-]]
+]], misc.coordinate_radix)
 
 local fragment_shader = [[
 #version 330 core
@@ -47,6 +48,8 @@ local function render(self, t, w, h)
 	for i, v in ipairs(self.animation_list) do
 		if v:tick(self, t) then
 			table.insert(new_list, v)
+		elseif v.done then
+			v:done(self, t)
 		end
 	end
 	self.animation_list = new_list
@@ -62,15 +65,15 @@ local function render(self, t, w, h)
 	local base = {self.pos[1], self.pos[2]}
 	local align = self.align or "center"
 	if align == "left" then
-
+		-- noop
 	elseif align == "right" then
-		base[1] = base[1] - self.length
+		base[1] = base[1] - self.scale * self.length
 	else
 		if align ~= "center" then
 			print("WARN", "unknown alignment " .. align)
 		end
 
-		base[1] = base[1] - self.length / 2
+		base[1] = base[1] - self.scale * self.length / 2
 	end
 
 	gl.active_texture(1)
@@ -102,11 +105,69 @@ local function render(self, t, w, h)
 	gl.use_program(0)
 end
 
-local function animation(self, anime, ...)
-	table.insert(self.animation_list, anime(self, ...))
+local function bound(self, pos)
+	local top = self.pos[2] + self.scale * self.ascender
+	local bot = self.pos[2] + self.scale * self.descender
+
+	if pos[2] <= bot or pos[2] >= top then
+		return false
+	end
+
+	local x
+	if self.align == "left" then
+		left = self.pos[1]
+	elseif self.align == "right" then
+		x = self.pos[1] - self.scale * self.length
+	else
+		x = self.pos[1] - self.scale * self.length / 2
+	end
+
+	return pos[1] > x and pos[1] < (x + self.scale * self.length)
+end
+
+local function animation(self, anime)
+	table.insert(self.animation_list, anime)
 end
 
 local function new_text(self, str)
+	if not prog then
+		local points = {
+			-1.0, -1.0,
+			1.0, -1.0,
+			-1.0, 1.0,
+			1.0, 1.0,
+		}
+
+		local uv = {
+			0.0, 1.0,
+			1.0, 1.0,
+			0.0, 0.0,
+			1.0, 0.0,
+		}
+
+		prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
+		loc_ratio = gl.get_uniform_location(prog, "aspect_ratio")
+		loc_scale = gl.get_uniform_location(prog, "scale")
+		loc_offset = gl.get_uniform_location(prog, "offset")
+		loc_texture = gl.get_uniform_location(prog, "tex")
+		loc_color = gl.get_uniform_location(prog, "color")
+
+		vertex_array = gl.new_vertex_array()
+
+		local bp = gl.new_buffer("array")
+		gl.buffer_data("array", gl.pack("float", points), "static draw")
+		gl.vertex_attrib_pointer(0, 2, "float", false, 0, 0)
+		gl.enable_vertex_attrib_array(0)
+		gl.unbind_buffer("array")
+
+		local bv = gl.new_buffer("array")
+		gl.buffer_data("array", gl.pack("float", uv), "static draw")
+		gl.vertex_attrib_pointer(1, 2, "float", false, 0, 0)
+		gl.enable_vertex_attrib_array(1)
+		gl.unbind_buffer("array")
+
+		gl.unbind_vertex_array()
+	end
 
 	local list = {}
 	local length = 0
@@ -145,25 +206,34 @@ local function new_text(self, str)
 	end
 
 	return {
+		layer = misc.layer.front,
 		str = str,
 		list = list,
 		length = length,
+		ascender = self.ascender,
+		descender = self.descender,
 		scale = 1,
 		pos = {0, 0},
 		color = {0, 0, 0, 1},
 		render = render,
+		bound = bound,
 		animation = animation,
-		animation_list = {}
+		animation_list = {},
 	}
 end
 
-local function new_font(path, size)
+local function new_face(path, size)
 	local face = ft.new_face(ft_lib, path)
 	face:set_pixel_sizes(0, size or 64)
 
+	local size_info = face:size()
+	print(size_info.height / 64, size_info.ascender / 64, size_info.descender / 64)
 	return {
 		face = face,
 		size = size,
+		height = size_info.height / 64,
+		ascender = size_info.ascender / 64,
+		descender = size_info.descender / 64,
 		cp_table = {},
 		new_text = new_text,
 	}
@@ -171,45 +241,6 @@ end
 
 ft_lib = ft.init_freetype()
 
-local points = {
-	-1.0, -1.0,
-	1.0, -1.0,
-	-1.0, 1.0,
-	1.0, 1.0,
-}
-
-local uv = {
-	0.0, 1.0,
-	1.0, 1.0,
-	0.0, 0.0,
-	1.0, 0.0,
-}
-
-prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
-loc_ratio = gl.get_uniform_location(prog, "aspect_ratio")
-loc_scale = gl.get_uniform_location(prog, "scale")
-loc_offset = gl.get_uniform_location(prog, "offset")
-loc_texture = gl.get_uniform_location(prog, "tex")
-loc_color = gl.get_uniform_location(prog, "color")
-
-vertex_array = gl.new_vertex_array()
-
-local bp = gl.new_buffer("array")
-gl.buffer_data("array", gl.pack("float", points), "static draw")
-gl.vertex_attrib_pointer(0, 2, "float", false, 0, 0)
-gl.enable_vertex_attrib_array(0)
-gl.unbind_buffer("array")
-
-local bv = gl.new_buffer("array")
-gl.buffer_data("array", gl.pack("float", uv), "static draw")
-gl.vertex_attrib_pointer(1, 2, "float", false, 0, 0)
-gl.enable_vertex_attrib_array(1)
-gl.unbind_buffer("array")
-
-gl.unbind_vertex_array()
-
-gl.pixel_store("unpack alignment", 1)
-
 return {
-	new_font = new_font,
+	new_face = new_face,
 }
