@@ -238,7 +238,7 @@ local function run(self)
 end
 --]]
 
-local function round_start(tid)
+local function round_start(self, tid, round)
 	if self.teams[tid] and self.teams[tid].round_start then
 		self.teams[tid].round_start(self, tid, round)
 	end
@@ -283,7 +283,7 @@ local function round_start(tid)
 	end
 end
 
-local function round_end(tid)
+local function round_end(self, tid, round)
 	buff.defer(self:get_team(tid))
 
 	if self.teams[tid] and self.teams[tid].round_end then

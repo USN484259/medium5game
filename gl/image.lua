@@ -46,15 +46,8 @@ local loc_alpha
 local image_table = {}
 
 local function render(self, t, w, h)
-	local new_list = {}
-	for i, v in ipairs(self.animation_list) do
-		if v:tick(self, t) then
-			table.insert(new_list, v)
-		elseif v.done then
-			v:done(self, t)
-		end
-	end
-	self.animation_list = new_list
+
+	misc.animation_tick(self, t)
 
 	if self.hidden then
 		return
@@ -100,10 +93,6 @@ local function bound(self, pos)
 	local bot = self.pos[2] - self.scale * self.height / 2
 
 	return pos[1] > left and pos[1] < right and pos[2] > bot and pos[2] < top
-end
-
-local function animation(self, anime)
-	table.insert(self.animation_list, anime)
 end
 
 local function new_image(path)
@@ -186,7 +175,6 @@ local function new_image(path)
 		alpha = 1,
 		render = render,
 		bound = bound,
-		animation = animation,
 		animation_list = {},
 	}
 end

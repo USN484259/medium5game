@@ -2,8 +2,7 @@ local gl = require("moongl")
 local glfw = require("moonglfw")
 local misc = require("gl/misc")
 
-local element_table = {}
-local handler_table = {}
+local window_record = {}
 
 local function step(self)
 	local window = self.window
@@ -11,69 +10,125 @@ local function step(self)
 		return false
 	end
 
-	glfw.poll_events()
 	gl.clear("color")
-
-	local elements = element_table[window]
 
 	local w, h = glfw.get_window_size(window)
 	local t = glfw.get_time()
 
-	for i, e in ipairs(elements) do
+	for i, e in ipairs(self.element_table) do
 		e:render(t, w, h)
 	end
 
 	glfw.swap_buffers(window)
+
+	glfw.poll_events()
 	return true
 end
 
 local function clear(self)
-	local window = self.window
-	element_table[window] = {}
-	handler_table[window] = {}
+	self.element_table = {}
+	self.handler_table = {}
+	self.schedule_table = {}
+	self.anime:reset()
 end
 
 local function add(self, element)
-	local window = self.window
 	local layer_cmp = function(a, b)
 		return a.layer < b.layer
 	end
 
-	table.insert(element_table[window], element)
-	table.sort(element_table[window], layer_cmp)
+	table.insert(self.element_table, element)
+	table.sort(self.element_table, layer_cmp)
 
 	if element.handler then
-		table.insert(handler_table[window], element)
-		table.sort(handler_table[window], layer_cmp)
+		table.insert(self.handler_table, element)
+		table.sort(self.handler_table, layer_cmp)
 	end
 end
 
 local function remove(self, element)
-	local window = self.window
-	local elements = element_table[window]
-	for i, e in ipairs(elements) do
+	for i, e in ipairs(self.element_table) do
 		if e == element then
 			e.handler = nil
-			table.remove(elements, i)
+			table.remove(self.element_table, i)
 			break
 		end
 	end
+end
+
+local function schedule(self, func, ...)
+	table.insert(self.schedule_table, table.pack(func, ...))
+end
+
+local function run(self, func, ...)
+	while true do
+		if not step(self) then
+			return
+		end
+
+		local sched = self.schedule_table
+		self.schedule_table = {}
+
+		for i, v in ipairs(sched) do
+			v[1](table.unpack(v, 2))
+		end
+
+		if func then
+			local res = func(self, ...)
+			if type(res) ~= "nil" then
+				return res
+			end
+		end
+	end
+
+end
+
+local function anime_group()
+	return {
+		list = {},
+		add = function(self, element, anime, offset)
+			local orig_done = anime.done
+			anime.done = function(s, e, t)
+				if orig_done then
+					orig_done(s, e, t)
+				end
+				self.count = self.count - 1
+			end
+			table.insert(self.list, {element, anime, offset or 0})
+		end,
+		commit = function(self)
+			local timestamp = glfw.get_time()
+			self.count = #self.list
+			for i, v in ipairs(self.list) do
+				misc.animation_add(v[1], timestamp + v[3], v[2])
+			end
+
+			self.list = nil
+		end,
+		check = function(self)
+			return self.count == 0
+		end,
+		reset = function(self)
+			self.list = {}
+			self.count = nil
+		end,
+	}
 end
 
 local function on_resize(window, w, h)
 	gl.viewport(0, 0, w, h)
 end
 
-local function on_event(window, event, info)
-	local elements = handler_table[window]
-	if #elements == 0 then
+local function on_event(wid, event, info)
+	local window = window_record[wid]
+	if type(window) ~= "table" or #window.handler_table == 0 then
 		return
 	end
 
 	-- translate pos
 	if info and info.pos then
 		local x, y = table.unpack(info.pos)
-		local w, h = glfw.get_window_size(window)
+		local w, h = glfw.get_window_size(wid)
 		local ratio = h / (2 * misc.coordinate_radix)
 		info.pos = {
 			(x - w / 2) / ratio,
@@ -81,11 +136,11 @@ local function on_event(window, event, info)
 		}
 	end
 
-	for i = #elements, 1, -1 do
-		local e = elements[i]
+	for i = #window.handler_table, 1, -1 do
+		local e = window.handler_table[i]
 		if not e.handler then
-			table.remove(elements, i)
-		elseif e:handler(event, info) then
+			table.remove(window.handler_table, i)
+		elseif e:handler(window, event, info) then
 			break
 		end
 	end
@@ -184,19 +239,24 @@ local function new_window(title, w, h)
 	glfw.set_scroll_callback(window, on_scroll)
 	glfw.set_cursor_enter_callback(window, on_enter)
 
-	element_table[window] = {}
-	handler_table[window] = {}
-
-	return {
+	local res = {
 		window = window,
-		step = step,
+		element_table = {},
+		handler_table = {},
+		schedule_table = {},
+		anime = anime_group(),
+
 		clear = clear,
 		add = add,
 		remove = remove,
+		schedule = schedule,
+		run = run,
 	}
+	window_record[window] = res
+
+	return res
 end
 
 return {
 	new_window = new_window,
-	get_time = glfw.get_time,
 }
