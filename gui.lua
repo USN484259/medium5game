@@ -4,7 +4,10 @@ local version = { 0, 0, 1 }
 
 -- default config
 local locale = "zh-cn"
-local font_path = nil
+local font_list = {
+	"wqy-zenhei.ttc",
+	"NotoColorEmoji.ttf",
+}
 local resource_folder = "resources"
 local locale_folder = "locale"
 local map_folder = "maps"
@@ -19,13 +22,13 @@ local hexagon = require("core/hexagon")
 
 local gl_window = require("gl/window")
 local gl_misc = require("gl/misc")
+local gl_motion = require("gl/motion")
 local gl_map = require("gl/map")
 local gl_image = require("gl/image")
 local gl_text = require("gl/text")
 
 -- global variables
 local locale_table
-local face
 local window
 
 local element_color = {
@@ -71,6 +74,42 @@ local function translate(name, ...)
 	end
 end
 
+local function floating_text(map, obj, str, color)
+	local text = gl_text.new_text(str, 64)
+	text.color = color
+	text.color[4] = 0
+
+	local pos = map.gui:tile(obj.pos)
+	pos[2] = pos[2] + map.gui.size / 8
+	text.pos = pos
+
+	window:add(text)
+
+	local motion_in = gl_motion.new("fade_in", {
+		duration = 0.3,
+		watch = obj.gui.anchor,
+	})
+
+	local target = {
+		pos[1],
+		pos[2] + map.gui.size / 2,
+	}
+	local motion_move = gl_motion.new("move", {
+		duration = 0.8,
+		watch = obj.gui.anchor,
+		done = function(self, element, time)
+			assert(element == text)
+			window:schedule(function()
+				window:remove(element)
+			end)
+		end,
+	}, target)
+	obj.gui.anchor = motion_in
+	window.motion_group:add(text, motion_in)
+	window.motion_group:add(text, motion_move)
+
+end
+
 local event_table = {
 	new_map = function(map)
 		local size = math.floor((gl_misc.coordinate_radix * 7 / 8) / (1 + 3 * map.scale / 2))
@@ -83,26 +122,28 @@ local event_table = {
 		local ui = gl_image.new_image(path)
 		ui.scale = 3 / 2 * map.gui.size / math.max(ui.width, ui.height)
 		ui.pos = map.gui:tile(obj.pos)
-		ui.alpha = 0
+		ui.color[4] = 0
 		window:add(ui)
 		obj.gui = ui
 
-		local duration = 0.6
-		local anime_spawn = gl_misc.animation_list.fade_in(obj.gui, duration)
-
-		window.anime:add(obj.gui, anime_spawn)
+		local motion_spawn = gl_motion.new("fade_in", {duration = 0.6})
+		window.motion_group:add(obj.gui, motion_spawn)
 	end,
 	kill = function(map, obj)
-		local duration = 0.6
-		local delay = 1
-		local anime_kill = gl_misc.animation_list.fade_out(obj.gui, duration)
-		anime_kill.done = function(self, element, time)
-			assert(element == obj.gui)
-			window:remove(obj.gui)
-			-- FIXME close gui object
-			obj.gui = nil
-		end
-		window.anime:add(obj.gui, anime_kill, delay)
+		local motion_kill = gl_motion.new("fade_out", {
+			duration = 0.6,
+			delay = 0.5,
+			watch = obj.gui.anchor,
+			done = function(self, element, time)
+				assert(element == obj.gui)
+				window:schedule(function()
+					window:remove(obj.gui)
+					-- FIXME close gui object
+					obj.gui = nil
+				end)
+			end
+		})
+		window.motion_group:add(obj.gui, motion_kill)
 	end,
 	move = function(map, obj, waypoint)
 		local points = {}
@@ -110,132 +151,59 @@ local event_table = {
 
 		for i, d in ipairs(waypoint) do
 			pos = hexagon.direction(pos, d)
-			table.insert(points, map.gui:tile(pos))
+
+			local motion_move = gl_motion.new("move", {
+				duration = 0.5,
+				watch = obj.gui.anchor,
+			}, map.gui:tile(pos))
+
+			obj.gui.anchor = motion_move
+			window.motion_group:add(obj.gui, motion_move)
 		end
-
-		local anime_move = {
-			pos = map.gui:tile(obj.pos),
-			points = points,
-			duration = 0.5,
-			tick = function(self, element, time)
-				local dis = gl_misc.animation_progress(self, time)
-				element.pos = {
-					self.pos[1] * (1 - dis) + self.points[1][1] * dis,
-					self.pos[2] * (1 - dis) + self.points[1][2] * dis,
-				}
-
-				if dis == 1 then
-					self.timestamp = time
-					self.pos = table.remove(self.points, 1)
-				end
-
-				return #self.points ~= 0
-			end,
-		}
-		window.anime:add(obj.gui, anime_move)
 	end,
 	teleport = function(map, obj, target)
-		local anime_teleport = {
-			moved = false,
+		local motion_out = gl_motion.new("fade_out", {
 			duration = 0.3,
-			tick = function(self, element, time)
-				local dis = gl_misc.animation_progress(self, time)
-
-				if self.moved then
-					element.alpha = dis
-					if dis == 1 then
-						return false
-					end
-				else
-					element.alpha = 1 - dis
-
-					if dis == 1 then
-						self.timestamp = time
-						element.pos = map.gui:tile(target)
-						self.moved = true
-					end
-				end
-
-				return true
+			watch = obj.gui.anchor,
+			done = function(self, element, time)
+				element.pos = map.gui:tile(target)
 			end,
-		}
-		window.anime:add(obj.gui, anime_teleport)
+		})
+		window.motion_group:add(obj.gui, motion_out)
+
+		local motion_in = gl_motion.new("fade_in", {
+			duration = 0.3,
+			watch = motion_out,
+		})
+		obj.gui.anchor = motion_in
+		window.motion_group:add(obj.gui, motion_in)
 	end,
 	heal = function(map, obj, heal)
 		print("heal", obj.name, heal)
-		local text = face:new_text('+' .. heal)
-		text.color = {0, 0.7, 0, 1}
-		local pos = map.gui:tile(obj.pos)
-		pos[2] = pos[2] + map.gui.size / 8
-		text.pos = pos
-
-		window:add(text)
-
-		local duration = 0.6
-		local target = {
-			pos[1],
-			pos[2] + map.gui.size / 2,
-		}
-		local anime_move = gl_misc.animation_list.move(text, target, duration)
-		anime_move.done = function(self, element, time)
-			assert(element == text)
-			window:remove(element)
-		end
-
-		window.anime:add(text, anime_move)
+		floating_text(map, obj, '+' .. tostring(math.floor(heal)), {0, 0.7, 0, 1})
 	end,
 	damage = function(map, obj, damage, element)
 		print("damage", obj.name, damage, element)
-		local text = face:new_text(tostring(damage))
 
-		text.color = {}
+		local color = {}
 		for i, c in ipairs(element_color[element]) do
-			text.color[i] = c * 0.8
+			color[i] = c * 0.8
 		end
-		text.color[4] = 1
+		color[4] = 1
 
-		local pos = map.gui:tile(obj.pos)
-		pos[2] = pos[2] + map.gui.size / 8
-		text.pos = pos
-
-		window:add(text)
-
-		local duration = 0.6
-		local target = {
-			pos[1],
-			pos[2] + map.gui.size / 2,
-		}
-		local anime_move = gl_misc.animation_list.move(text, target, duration)
-		anime_move.done = function(self, element, time)
-			assert(element == text)
-			window:remove(element)
-		end
-
-		window.anime:add(text, anime_move)
-
+		floating_text(map, obj, tostring(math.floor(damage)), color)
 	end,
 	miss = function(map, obj)
 		print("miss", obj.name)
-		local text = face:new_text("miss")
-		text.color = {0.3, 0.3, 0.3, 1}
-		local pos = map.gui:tile(obj.pos)
-		pos[2] = pos[2] + map.gui.size / 8
-		text.pos = pos
-
-		window:add(text)
-
-		local duration = 0.6
-		local target = {
-			pos[1],
-			pos[2] + map.gui.size / 2,
-		}
-		local anime_move = gl_misc.animation_list.move(text, target, duration)
-		anime_move.done = function(self, element, time)
-			assert(element == text)
-			window:remove(element)
-		end
-
-		window.anime:add(text, anime_move)
+		floating_text(map, obj, "miss", {0.3, 0.3, 0.3, 1})
+	end,
+	shield = function(map, obj, sh, blk)
+		print("shield", obj.name, sh.name, blk)
+		floating_text(map, obj, '🛡' .. tostring(math.floor(blk)), {0.3, 0.3, 0.3, 1})
+	end,
+	generate = function(map, obj, power)
+		print("generate", obj.name, power)
+		floating_text(map, obj, '⚡' .. tostring(math.floor(power)), {0.0, 0.6, 0.5, 1})
 	end,
 }
 
@@ -253,27 +221,13 @@ local function main_game(map_name)
 	end
 
 	map_info.event_table = event_table
---[[
-	for i, v in ipairs(map_info.teams) do
-		-- util.merge_table(v, event_table)
-		if type(v.round) == "string" then
-			if v.round == "player" then
-				v.round = player_control
-			elseif v.round == "enemy" then
-				v.round = enemy_control
-			else
-				print("unknown round " .. v.round)
-				return true
-			end
-		end
-	end
---]]
+
 	local team_count = #map_info.teams
 
 	window:clear()
 
 	local map = require("core/map")(map_info)
-	window.anime:commit()
+	window.motion_group:commit()
 
 	local tid = 0
 	local round = 1
@@ -286,11 +240,11 @@ local function main_game(map_name)
 --]]
 
 	return window:run(function(wnd)
-		if not wnd.anime:check() then
+		if not wnd.motion_group:check() then
 			return
 		end
 		if #action_list > 0 then
-			window.anime:reset()
+			window.motion_group:reset()
 			local action = table.remove(action_list, 1)
 			assert(type(action) == "table")
 
@@ -339,7 +293,7 @@ local function main_game(map_name)
 				error(action.cmd)
 			end
 
-			window.anime:commit()
+			window.motion_group:commit()
 		end
 	end)
 end
@@ -358,9 +312,9 @@ local function main_menu()
 	table.sort(map_list)
 
 	window:clear()
-	local y = gl_misc.coordinate_radix - 2 * face.height
+	local y = gl_misc.coordinate_radix - 64
 	for i, v in ipairs(map_list) do
-		local l = face:new_text(v)
+		local l = gl_text.new_text(v, 64)
 		l.pos = {0, y}
 		l.color = {0, 0, 0, 1}
 		l.handler = function(self, wnd, ev, info)
@@ -377,8 +331,8 @@ local function main_menu()
 			end
 		end
 		print(l.str, y)
+		y = y - l.height
 		window:add(l)
-		y = y - face.height
 	end
 
 	return window:run(function(wnd)
@@ -390,18 +344,9 @@ local function main_window()
 	util.random_setup(rng_source, rng_seed or os.time())
 	locale_table = require(locale_folder .. '/' .. locale)
 
-	if not font_path then
-		-- find font in resource folder
-		local l = platform.ls(resource_folder)
-		for k, v in pairs(l) do
-			-- TODO check symbolic link
-			if string.lower(string.sub(k, -4)) == ".ttc" then
-				font_path = resource_folder .. '/' .. k
-				break
-			end
-		end
+	for i, v in ipairs(font_list) do
+		gl_text.add_face(resource_folder .. '/' .. v)
 	end
-	face = gl_text.new_face(font_path)
 
 	local title = translate("ui.game_title")
 	window = gl_window.new_window(title)

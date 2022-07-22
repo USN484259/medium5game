@@ -1,6 +1,7 @@
 local gl = require("moongl")
 local ft = require("moonfreetype")
 local misc = require("gl/misc")
+local motion = require("gl/motion")
 
 local vertex_shader = string.format([[
 #version 330 core
@@ -42,17 +43,10 @@ local loc_texture
 local loc_color
 
 local ft_lib
+local faces = {}
 
 local function render(self, t, w, h)
-	local new_list = {}
-	for i, v in ipairs(self.animation_list) do
-		if v:tick(self, t) then
-			table.insert(new_list, v)
-		elseif v.done then
-			v:done(self, t)
-		end
-	end
-	self.animation_list = new_list
+	motion.apply(self, t)
 
 	if self.hidden then
 		return
@@ -81,24 +75,26 @@ local function render(self, t, w, h)
 	gl.bind_vertex_array(vertex_array)
 
 	for i, g in ipairs(self.list) do
+		local scale = self.scale * g.scale
+
 		gl.bind_texture("2d", g.texture)
 
-		local scale = {
-			self.scale * g.width / 2,
-			self.scale * g.height / 2,
+		local tx_scale = {
+			scale * g.width / 2,
+			scale * g.height / 2,
 		}
-		gl.uniform(loc_scale, "float", table.unpack(scale))
+		gl.uniform(loc_scale, "float", table.unpack(tx_scale))
 
-		local pos = {
-			base[1] + self.scale * (g.left + g.width / 2),
-			base[2] + self.scale * (g.top - g.height / 2),
+		local tx_pos = {
+			base[1] + scale * (g.left + g.width / 2),
+			base[2] + scale * (g.top - g.height / 2),
 		}
 
-		gl.uniform(loc_offset, "float", table.unpack(pos))
+		gl.uniform(loc_offset, "float", table.unpack(tx_pos))
 
 		gl.draw_arrays("triangle strip", 0, 4)
 
-		base[1] = base[1] + self.scale * g.advance
+		base[1] = base[1] + scale * g.advance
 	end
 
 	gl.unbind_vertex_array()
@@ -125,11 +121,7 @@ local function bound(self, pos)
 	return pos[1] > x and pos[1] < (x + self.scale * self.length)
 end
 
-local function animation(self, anime)
-	table.insert(self.animation_list, anime)
-end
-
-local function new_text(self, str)
+local function gl_setup()
 	if not prog then
 		local points = {
 			-1.0, -1.0,
@@ -168,79 +160,109 @@ local function new_text(self, str)
 
 		gl.unbind_vertex_array()
 	end
+end
+
+local function new_text(str, size)
+	gl_setup()
 
 	local list = {}
 	local length = 0
+	local ascender, descender, height
+
 	for p, c in utf8.codes(str) do
-		if not self.cp_table[c] then
-			self.face:load_char(c, ft.LOAD_RENDER)
-			local g = self.face:glyph()
+		for i, f in ipairs(faces) do
+			if not f.cp_table[c] then
+				local index = ft.get_char_index(f.face, c)
+				if index and pcall(ft.load_glyph, f.face, index, ft.LOAD_RENDER) then
+					local g = f.face:glyph()
 
-			local t = gl.new_texture("2d")
-			-- FIXME using pitch instead of width
-			gl.texture_image("2d", 0, "red", "red", "ubyte", g.bitmap.buffer, g.bitmap.width, g.bitmap.rows)
-			gl.texture_parameter("2d", "base level", 0)
-			gl.texture_parameter("2d", "max level", 0)
-			gl.texture_parameter('2d', 'wrap s', 'repeat')
-			gl.texture_parameter('2d', 'wrap t', 'repeat')
-			gl.texture_parameter('2d', 'min filter', 'linear')
-			gl.texture_parameter('2d', 'mag filter', 'linear')
+					local t = gl.new_texture("2d")
+					-- FIXME using pitch instead of width
+					gl.texture_image("2d", 0, "red", "red", "ubyte", g.bitmap.buffer, g.bitmap.width, g.bitmap.rows)
+					gl.texture_parameter("2d", "base level", 0)
+					gl.texture_parameter("2d", "max level", 0)
+					gl.texture_parameter('2d', 'wrap s', 'repeat')
+					gl.texture_parameter('2d', 'wrap t', 'repeat')
+					gl.texture_parameter('2d', 'min filter', 'linear')
+					gl.texture_parameter('2d', 'mag filter', 'linear')
 
-			gl.unbind_texture("2d")
+					gl.unbind_texture("2d")
 
-			self.cp_table[c] = {
-				texture = t,
-				left = g.bitmap.left,
-				top = g.bitmap.top,
-				width = g.bitmap.width,
-				height = g.bitmap.rows,
-				stride = g.bitmap.pitch,
-				advance = g.advance.x / 64,
-			}
+					f.cp_table[c] = {
+						texture = t,
+						scale = size / f.size.size,
+						left = g.bitmap.left,
+						top = g.bitmap.top,
+						width = g.bitmap.width,
+						height = g.bitmap.rows,
+						stride = g.bitmap.pitch,
+						advance = g.advance.x / 64,
+					}
 
+				end
+			end
+
+			local g = f.cp_table[c]
+			if g then
+				length = length + g.scale * g.advance
+				table.insert(list, g)
+
+				if ascender then
+					ascender, descender, height = math.max(ascender, f.size.ascender), math.min(descender, f.size.descender), math.max(height, f.size.height)
+				else
+					ascender, descender, height = f.size.ascender, f.size.descender, f.size.height
+				end
+
+				break
+			end
 		end
-
-		local g = self.cp_table[c]
-		length = length + g.advance
-		table.insert(list, g)
 	end
-
+	print(ascender, descender, height)
 	return {
 		layer = misc.layer.front,
 		str = str,
 		list = list,
 		length = length,
-		ascender = self.ascender,
-		descender = self.descender,
+		ascender = ascender / 64 or 0,
+		descender = descender / 64 or 0,
+		height = height / 64 or 0,
 		scale = 1,
 		pos = {0, 0},
 		color = {0, 0, 0, 1},
 		render = render,
 		bound = bound,
-		animation = animation,
-		animation_list = {},
+		motion_list = {},
 	}
 end
 
-local function new_face(path, size)
+
+local function add_face(path, size)
+	size = size or 64
 	local face = ft.new_face(ft_lib, path)
-	face:set_pixel_sizes(0, size or 64)
+	print(path, "num_faces: " .. face:num_faces(), "bold: " .. tostring(face:is_bold()), "italic: " .. tostring(face:is_italic()))
+	if face:num_fixed_sizes() == 0 then
+		face:set_pixel_sizes(0, size)
+	else
+		-- FIXME find closest size
+		face:select_size(1)
+
+		size = face:available_sizes()[1].size / 64
+	end
 
 	local size_info = face:size()
-	print(size_info.height / 64, size_info.ascender / 64, size_info.descender / 64)
-	return {
+	size_info.size = size
+	print(size, size_info.height / 64, size_info.ascender / 64, size_info.descender / 64)
+
+	table.insert(faces, {
 		face = face,
-		size = size,
-		height = size_info.height / 64,
-		ascender = size_info.ascender / 64,
-		descender = size_info.descender / 64,
+		size = size_info,
 		cp_table = {},
-		new_text = new_text,
-	}
+	})
 end
 
 ft_lib = ft.init_freetype()
 
 return {
-	new_face = new_face,
+	add_face = add_face,
+	new_text = new_text,
 }

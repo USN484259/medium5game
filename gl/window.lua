@@ -1,6 +1,8 @@
+local util = require("core/util")
 local gl = require("moongl")
 local glfw = require("moonglfw")
 local misc = require("gl/misc")
+local motion = require("gl/motion")
 
 local window_record = {}
 
@@ -29,7 +31,7 @@ local function clear(self)
 	self.element_table = {}
 	self.handler_table = {}
 	self.schedule_table = {}
-	self.anime:reset()
+	self.motion_group:reset()
 end
 
 local function add(self, element)
@@ -38,11 +40,11 @@ local function add(self, element)
 	end
 
 	table.insert(self.element_table, element)
-	table.sort(self.element_table, layer_cmp)
+	util.stable_sort(self.element_table, layer_cmp)
 
 	if element.handler then
 		table.insert(self.handler_table, element)
-		table.sort(self.handler_table, layer_cmp)
+		util.stable_sort(self.handler_table, layer_cmp)
 	end
 end
 
@@ -83,24 +85,24 @@ local function run(self, func, ...)
 
 end
 
-local function anime_group()
+local function motion_group()
 	return {
 		list = {},
-		add = function(self, element, anime, offset)
-			local orig_done = anime.done
-			anime.done = function(s, e, t)
+		add = function(self, element, motion)
+			local orig_done = motion.done
+			motion.done = function(s, e, t)
 				if orig_done then
 					orig_done(s, e, t)
 				end
 				self.count = self.count - 1
 			end
-			table.insert(self.list, {element, anime, offset or 0})
+			table.insert(self.list, {element, motion})
 		end,
 		commit = function(self)
-			local timestamp = glfw.get_time()
+			local time = glfw.get_time()
 			self.count = #self.list
 			for i, v in ipairs(self.list) do
-				misc.animation_add(v[1], timestamp + v[3], v[2])
+				motion.add(v[1], v[2], time)
 			end
 
 			self.list = nil
@@ -244,7 +246,7 @@ local function new_window(title, w, h)
 		element_table = {},
 		handler_table = {},
 		schedule_table = {},
-		anime = anime_group(),
+		motion_group = motion_group(),
 
 		clear = clear,
 		add = add,

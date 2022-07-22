@@ -1,6 +1,7 @@
 local gl = require("moongl")
 local img = require("moonimage")
 local misc = require("gl/misc")
+local motion = require("gl/motion")
 
 local vertex_shader = string.format([[
 #version 330 core
@@ -24,13 +25,13 @@ local fragment_shader = [[
 #version 330 core
 
 uniform sampler2D tex;
-uniform float alpha;
+uniform vec4 color;
 in vec2 uv;
 out vec4 out_color;
 
 void main()
 {
-	out_color = texture(tex, uv) * vec4(1.0, 1.0, 1.0, alpha);
+	out_color = color * texture(tex, uv);
 }
 ]]
 
@@ -41,13 +42,12 @@ local loc_rotation
 local loc_scale
 local loc_offset
 local loc_texture
-local loc_alpha
+local loc_color
 
 local image_table = {}
 
 local function render(self, t, w, h)
-
-	misc.animation_tick(self, t)
+	motion.apply(self, t)
 
 	if self.hidden then
 		return
@@ -71,7 +71,7 @@ local function render(self, t, w, h)
 
 	gl.uniform(loc_offset, "float", table.unpack(self.pos))
 
-	gl.uniform(loc_alpha, "float", self.alpha)
+	gl.uniform(loc_color, "float", table.unpack(self.color))
 
 	gl.active_texture(1)
 	gl.bind_texture("2d", self.texture)
@@ -95,8 +95,7 @@ local function bound(self, pos)
 	return pos[1] > left and pos[1] < right and pos[2] > bot and pos[2] < top
 end
 
-local function new_image(path)
-	print(path)
+local function gl_setup()
 	if not prog then
 		local points = {
 			-1.0, -1.0,
@@ -118,7 +117,7 @@ local function new_image(path)
 		loc_scale = gl.get_uniform_location(prog, "scale")
 		loc_offset = gl.get_uniform_location(prog, "offset")
 		loc_texture = gl.get_uniform_location(prog, "tex")
-		loc_alpha = gl.get_uniform_location(prog, "alpha")
+		loc_color = gl.get_uniform_location(prog, "color")
 
 		vertex_array = gl.new_vertex_array()
 
@@ -136,6 +135,11 @@ local function new_image(path)
 
 		gl.unbind_vertex_array()
 	end
+end
+
+local function new_image(path)
+	print(path)
+	gl_setup()
 
 	if not image_table[path] then
 		local t = gl.new_texture("2d")
@@ -172,10 +176,10 @@ local function new_image(path)
 		pos = {0, 0},
 		rotation = 0,
 		scale = 1,
-		alpha = 1,
+		color = {1, 1, 1, 1},
 		render = render,
 		bound = bound,
-		animation_list = {},
+		motion_list = {},
 	}
 end
 
