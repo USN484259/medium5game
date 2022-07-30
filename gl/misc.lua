@@ -1,12 +1,12 @@
-local motion = require("gl/motion")
-
-
 return {
 	coordinate_radix = 0x400,
 	layer = {
-		back = 0,
-		common = 0x08,
-		front = 0x0F,
+		bottom = 0,
+		background = 3,
+		common = 6,
+		overlay = 9,
+		hud = 12,
+		top = 15,
 --[[
 		grid = 1,
 		effect_under = 2,
@@ -17,5 +17,4 @@ return {
 		front = 0x0F,
 --]]
 	},
-	floating_text = floating_text,
 }

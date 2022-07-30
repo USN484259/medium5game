@@ -46,12 +46,6 @@ local ft_lib
 local faces = {}
 
 local function render(self, t, w, h)
-	motion.apply(self, t)
-
-	if self.hidden then
-		return
-	end
-
 	gl.use_program(prog)
 	gl.uniform(loc_ratio, "float", h / w)
 	gl.uniform(loc_color, "float", table.unpack(self.color))
@@ -75,7 +69,7 @@ local function render(self, t, w, h)
 	gl.bind_vertex_array(vertex_array)
 
 	for i, g in ipairs(self.list) do
-		local scale = self.scale * g.scale
+		local scale = self.scale * (self.size / g.face.size.size)
 
 		gl.bind_texture("2d", g.texture)
 
@@ -190,7 +184,7 @@ local function new_text(str, size)
 
 					f.cp_table[c] = {
 						texture = t,
-						scale = size / f.size.size,
+						face = f,
 						left = g.bitmap.left,
 						top = g.bitmap.top,
 						width = g.bitmap.width,
@@ -204,23 +198,25 @@ local function new_text(str, size)
 
 			local g = f.cp_table[c]
 			if g then
-				length = length + g.scale * g.advance
+				local scale = size / f.size.size
+				length = length + scale * g.advance
 				table.insert(list, g)
 
 				if ascender then
-					ascender, descender, height = math.max(ascender, f.size.ascender), math.min(descender, f.size.descender), math.max(height, f.size.height)
+					ascender, descender, height = math.max(ascender, scale * f.size.ascender), math.min(descender, scale * f.size.descender), math.max(height, scale * f.size.height)
 				else
-					ascender, descender, height = f.size.ascender, f.size.descender, f.size.height
+					ascender, descender, height = scale * f.size.ascender, scale * f.size.descender, scale * f.size.height
 				end
 
 				break
 			end
 		end
 	end
-	print(ascender, descender, height)
+	print(ascender / 64, descender / 64, height / 64)
 	return {
-		layer = misc.layer.front,
+		layer = misc.layer.overlay,
 		str = str,
+		size = size,
 		list = list,
 		length = length,
 		ascender = ascender / 64 or 0,
@@ -231,7 +227,6 @@ local function new_text(str, size)
 		color = {0, 0, 0, 1},
 		render = render,
 		bound = bound,
-		motion_list = {},
 	}
 end
 
@@ -264,5 +259,5 @@ ft_lib = ft.init_freetype()
 
 return {
 	add_face = add_face,
-	new_text = new_text,
+	new = new_text,
 }

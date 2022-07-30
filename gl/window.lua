@@ -4,69 +4,128 @@ local glfw = require("moonglfw")
 local misc = require("gl/misc")
 local motion = require("gl/motion")
 
+
+local element_table = {
+	map = require("gl/map"),
+	image = require("gl/image"),
+	text = require("gl/text"),
+}
+
 local window_record = {}
 
-local function step(self)
-	local window = self.window
-	if glfw.window_should_close(window) then
-		return false
-	end
 
-	gl.clear("color")
+local function new_element(window, parent)
+	return {
+		window = window,
+		parent = parent,
+		layer = misc.layer.common,
+		signalled = false,
+		hidden = false,
+		children = {},
+		motion_list = {},
+		signal = function(self)
+			self.signalled = true
+		end,
+		is_signalled = function(self)
+			return self.signalled
+		end,
+		render = function() end,
+		close = function(self)
+			for i, v in ipairs(self.children) do
+				v:close()
+			end
+			self.signalled = true
+			self.children = {}
+		end,
+		remove = function(self, obj)
+			for i, v in ipairs(self.children) do
+				if obj == v then
+					table.remove(self.children, i)
+					break
+				end
+			end
+			obj:close()
+			obj.handler = nil
+		end,
+		add = function(self, element_info)
+			local func = element_table[element_info.type].new
+			if not func then
+				error("unknown element type " .. element_info.type)
+			end
 
-	local w, h = glfw.get_window_size(window)
-	local t = glfw.get_time()
+			local element = util.merge_table(new_element(self.window, self), func(table.unpack(element_info.args or {})))
+			element = util.merge_table(element, element_info.overrides or {})
 
-	for i, e in ipairs(self.element_table) do
-		e:render(t, w, h)
-	end
+			table.insert(self.children, element)
 
-	glfw.swap_buffers(window)
+			if element.handler then
+				table.insert(self.window.handler_table, element)
+				util.stable_sort(self.window.handler_table, function(a, b)
+					return a.layer < b.layer
+				end)
+			end
 
-	glfw.poll_events()
-	return true
+			return element
+		end,
+	}
 end
+
 
 local function clear(self)
-	self.element_table = {}
+	self.root:close()
+
 	self.handler_table = {}
 	self.schedule_table = {}
-	self.motion_group:reset()
-end
-
-local function add(self, element)
-	local layer_cmp = function(a, b)
-		return a.layer < b.layer
-	end
-
-	table.insert(self.element_table, element)
-	util.stable_sort(self.element_table, layer_cmp)
-
-	if element.handler then
-		table.insert(self.handler_table, element)
-		util.stable_sort(self.handler_table, layer_cmp)
-	end
-end
-
-local function remove(self, element)
-	for i, e in ipairs(self.element_table) do
-		if e == element then
-			e.handler = nil
-			table.remove(self.element_table, i)
-			break
-		end
-	end
+	self.root = new_element(self)
 end
 
 local function schedule(self, func, ...)
 	table.insert(self.schedule_table, table.pack(func, ...))
 end
 
+local function step(queue, element, hidden, t)
+	local count = motion.apply(element, t)
+
+	hidden = hidden or element.hidden
+	if hidden then
+		return count
+	end
+
+	-- element:render(t, w, h)
+	table.insert(queue, element)
+
+	for i, e in ipairs(element.children) do
+		count = count + step(queue, e, hidden, t)
+	end
+
+	return count
+end
+
 local function run(self, func, ...)
 	while true do
-		if not step(self) then
+		local window = self.window
+		if glfw.window_should_close(window) then
 			return
 		end
+
+		gl.clear("color")
+
+		local w, h = glfw.get_window_size(window)
+		local t = glfw.get_time()
+		local queue = {}
+
+		self.motion_count = step(queue, self.root, false, t)
+
+		util.stable_sort(queue, function(a, b)
+			return a.layer < b.layer
+		end)
+
+		for i, v in ipairs(queue) do
+			v:render(t, w, h)
+		end
+
+		glfw.swap_buffers(window)
+		glfw.poll_events()
 
 		local sched = self.schedule_table
 		self.schedule_table = {}
@@ -83,38 +142,6 @@ local function run(self, func, ...)
 		end
 	end
 
-end
-
-local function motion_group()
-	return {
-		list = {},
-		add = function(self, element, motion)
-			local orig_done = motion.done
-			motion.done = function(s, e, t)
-				if orig_done then
-					orig_done(s, e, t)
-				end
-				self.count = self.count - 1
-			end
-			table.insert(self.list, {element, motion})
-		end,
-		commit = function(self)
-			local time = glfw.get_time()
-			self.count = #self.list
-			for i, v in ipairs(self.list) do
-				motion.add(v[1], v[2], time)
-			end
-
-			self.list = nil
-		end,
-		check = function(self)
-			return self.count == 0
-		end,
-		reset = function(self)
-			self.list = {}
-			self.count = nil
-		end,
-	}
 end
 
 local function on_resize(window, w, h)
@@ -142,7 +169,7 @@ local function on_event(wid, event, info)
 		local e = window.handler_table[i]
 		if not e.handler then
 			table.remove(window.handler_table, i)
-		elseif e:handler(window, event, info) then
+		elseif not e.hidden and e:handler(window, event, info) then
 			break
 		end
 	end
@@ -243,17 +270,15 @@ local function new_window(title, w, h)
 
 	local res = {
 		window = window,
-		element_table = {},
 		handler_table = {},
 		schedule_table = {},
-		motion_group = motion_group(),
 
 		clear = clear,
-		add = add,
-		remove = remove,
 		schedule = schedule,
 		run = run,
 	}
+	res.root = new_element(res)
+
 	window_record[window] = res
 
 	return res

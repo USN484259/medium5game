@@ -1,28 +1,142 @@
 local util = require("core/util")
 
-local motion_table = {
-	fade_in = function(target) return {
-		tick = function(self, element, dist, time)
+local motion_table
+
+--[[
+
+-- static
+name : string
+args : table
+duration : number, opt
+next : table
+
+-- psudo
+watch : number, opt
+
+-- active
+timestamp : number
+tick : function(self, element, time, dist)
+
+--]]
+
+local function motion_add(element, motion_list, line_index)
+	line_index = line_index or 1
+
+	local root, prev
+	root = element.motion_list[line_index]
+	prev = root
+
+	for i, v in ipairs(motion_list) do
+		local m = {
+			name = v.name,
+			args = v.args or {},
+			duration = v.duration,
+			next = {},
+		}
+
+		if v.watch then
+			if v.watch == 0 then
+				prev = root
+			else
+				prev = motion_list[v.watch].instance
+			end
+		end
+		if prev then
+			table.insert(prev.next, m)
+		else
+			table.insert(element.motion_list, m)
+		end
+
+		v.instance = m
+		prev = m
+	end
+end
+
+local function motion_clear(element)
+	element.motion_list = {}
+end
+
+local function motion_apply(element, time)
+	local new_list = {}
+	local count = #element.motion_list
+
+	for i, m in ipairs(element.motion_list) do
+		if not m.timestamp then
+			util.merge_table(m, motion_table[m.name](element, table.unpack(m.args)))
+			m.timestamp = time
+		end
+
+		local dist
+
+		if m.duration then
+			if m.duration == 0 then
+				dist = 1
+			else
+				dist = math.min(1, (time - m.timestamp) / m.duration)
+			end
+		end
+
+		if (not m:tick(element, time, dist)) or (dist and dist >= 1) then
+			table.move(m.next, 1, #m.next, 1 + #new_list, new_list)
+		else
+			table.insert(new_list, m)
+		end
+	end
+
+	element.motion_list = new_list
+
+	return count
+end
+
+motion_table = {
+	delay = function(e) return {
+		tick = function() return true end
+	} end,
+	signal = function(e) return {
+		tick = function(self, element, time, dist)
+			element:signal()
+
+			return false
+		end,
+	} end,
+	remove = function(e) return {
+		tick = function(self, element, time, dist)
+			element.window:schedule(function()
+				element.parent:remove(element)
+			end)
+
+			return false
+		end,
+	} end,
+	overlay = function(parent, element_info, motion_list)
+		local e = parent:add(element_info)
+		motion_add(e, motion_list)
+		return {
+			child = e,
+			tick = function(self, element, time, dist)
+				return not self.child:is_signalled()
+			end,
+		}
+	end,
+
+	fade_in = function(e, target) return {
+		tick = function(self, element, time, dist)
 			element.color[4] = dist * (target or 1)
 
 			return true
 		end,
 	} end,
-	fade_out = function() return {
-		init = function(self, element, time)
-			self.origin = element.color[4]
-		end,
-		tick = function(self, element, dist, time)
+	fade_out = function(e) return {
+		origin = e.color[4],
+		tick = function(self, element, time, dist)
 			element.color[4] = (1 - dist) * self.origin
 
 			return true
 		end,
 	} end,
-	move = function(target) return {
-		init = function(self, element, time)
-			self.origin = element.pos
-		end,
-		tick = function(self, element, dist, time)
+	move = function(e, target) return {
+		origin = e.pos,
+		tick = function(self, element, time, dist)
 			element.pos = {
 				self.origin[1] * (1 - dist) + target[1] * dist,
 				self.origin[2] * (1 - dist) + target[2] * dist,
@@ -33,68 +147,8 @@ local motion_table = {
 	} end,
 }
 
---[[
-overrides:
-	delay
-	duration
-	trigger
-	watch
-	done(self, element, time)
-fixed:
-	tick(self, element, dist, time)
-	init(self, element, time)
-status:
-	timestamp
-	signal
---]]
-local function motion_new(name, override, ...)
-	local motion = motion_table[name](...)
-	return util.merge_table(motion, override or {})
-end
-
-local function motion_add(element, motion, time)
-	motion.timestamp = time + (motion.delay or 0)
-	if motion.init then
-		motion:init(element, time)
-	end
-	table.insert(element.motion_list, 1, motion)
-end
-
-local function motion_apply(element, time)
-	for i = #element.motion_list, 1, -1 do
-		local motion = element.motion_list[i]
-		local skip = false
-		if motion.watch then
-			if motion.watch.signalled then
-				motion.watch = nil
-				motion.timestamp = time + (motion.delay or 0)
-				if motion.init then
-					motion:init(element, time)
-				end
-			else
-				-- continue
-				skip = true
-			end
-		end
-		if time >= motion.timestamp and not skip then
-			local dist = math.min(1, (time - motion.timestamp) / motion.duration)
-			local res = motion:tick(element, dist, time)
-			if dist >= (motion.trigger or 1) then
-				motion.signalled = true
-			end
-			if dist >= 1 or not res then
-				motion.signalled = true
-				if motion.done then
-					motion:done(element, time)
-				end
-				table.remove(element.motion_list, i)
-			end
-		end
-	end
-end
-
 return {
-	new = motion_new,
 	add = motion_add,
+	clear = motion_clear,
 	apply = motion_apply,
 }

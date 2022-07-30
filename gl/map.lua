@@ -197,7 +197,7 @@ local function new_map(scale, size)
 	local points = make_points(scale, size)
 
 	return {
-		layer = misc.layer.back,
+		layer = misc.layer.background,
 		scale = scale,
 		size = size,
 		points = points,
@@ -215,5 +215,5 @@ local function new_map(scale, size)
 end
 
 return {
-	new_map = new_map,
+	new = new_map,
 }

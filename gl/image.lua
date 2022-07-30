@@ -47,12 +47,6 @@ local loc_color
 local image_table = {}
 
 local function render(self, t, w, h)
-	motion.apply(self, t)
-
-	if self.hidden then
-		return
-	end
-
 	gl.use_program(prog)
 	gl.uniform(loc_ratio, "float", h / w)
 
@@ -179,13 +173,11 @@ local function new_image(path)
 		color = {1, 1, 1, 1},
 		render = render,
 		bound = bound,
-		motion_list = {},
 	}
 end
 
 
 
 return {
-	new_image = new_image,
+	new = new_image,
 }
-

@@ -23,8 +23,6 @@ local hexagon = require("core/hexagon")
 local gl_window = require("gl/window")
 local gl_misc = require("gl/misc")
 local gl_motion = require("gl/motion")
-local gl_map = require("gl/map")
-local gl_image = require("gl/image")
 local gl_text = require("gl/text")
 
 -- global variables
@@ -75,108 +73,111 @@ local function translate(name, ...)
 end
 
 local function floating_text(map, obj, str, color)
-	local text = gl_text.new_text(str, 64)
-	text.color = color
-	text.color[4] = 0
-
 	local pos = map.gui:tile(obj.pos)
-	pos[2] = pos[2] + map.gui.size / 8
-	text.pos = pos
 
-	window:add(text)
-
-	local motion_in = gl_motion.new("fade_in", {
-		duration = 0.3,
-		watch = obj.gui.anchor,
-	})
-
-	local target = {
-		pos[1],
-		pos[2] + map.gui.size / 2,
-	}
-	local motion_move = gl_motion.new("move", {
-		duration = 0.8,
-		watch = obj.gui.anchor,
-		done = function(self, element, time)
-			assert(element == text)
-			window:schedule(function()
-				window:remove(element)
-			end)
-		end,
-	}, target)
-	obj.gui.anchor = motion_in
-	window.motion_group:add(text, motion_in)
-	window.motion_group:add(text, motion_move)
-
+	gl_motion.add(obj.gui, {{
+		name = "overlay",
+		args = {
+			-- element-info
+			{
+				type = "text",
+				args = { str, 64 },
+				overrides = {
+					color = {
+						color[1],
+						color[2],
+						color[3],
+						0,
+					},
+					pos = {
+						pos[1],
+						pos[2] + map.gui.size / 4,
+					},
+				},
+			},
+			-- motion-list
+			{{
+				name = "fade_in",
+				duration = 0.3,
+				args = { color[4] },
+			}, {
+				name = "signal",
+			}, {
+				name = "move",
+				duration = 0.8,
+				args = {{
+					pos[1],
+					pos[2] + map.gui.size,
+				}},
+				watch = 0,
+			}, {
+				name = "remove",
+			}},
+		}
+	}})
 end
 
 local event_table = {
 	new_map = function(map)
 		local size = math.floor((gl_misc.coordinate_radix * 7 / 8) / (1 + 3 * map.scale / 2))
-		local ui = gl_map.new_map(map.scale, size)
-		window:add(ui)
-		map.gui = ui
+		map.gui = window.root:add({
+			type = "map",
+			args = {map.scale, size},
+		})
 	end,
 	spawn = function(map, obj)
 		local path = "resources/" .. string.sub(obj.name, 1 + string.find(obj.name, '.', 1, true)) .. ".png"
-		local ui = gl_image.new_image(path)
+		local ui = map.gui:add({
+			type = "image",
+			args = {path},
+		})
 		ui.scale = 3 / 2 * map.gui.size / math.max(ui.width, ui.height)
 		ui.pos = map.gui:tile(obj.pos)
-		ui.color[4] = 0
-		window:add(ui)
 		obj.gui = ui
 
-		local motion_spawn = gl_motion.new("fade_in", {duration = 0.6})
-		window.motion_group:add(obj.gui, motion_spawn)
+		ui.color[4] = 0
+		gl_motion.add(ui, {{
+			name = "fade_in",
+			duration = 0.6,
+		}})
 	end,
 	kill = function(map, obj)
-		local motion_kill = gl_motion.new("fade_out", {
+		gl_motion.add(obj.gui, {{
+			name = "fade_out",
 			duration = 0.6,
-			delay = 0.5,
-			watch = obj.gui.anchor,
-			done = function(self, element, time)
-				assert(element == obj.gui)
-				window:schedule(function()
-					window:remove(obj.gui)
-					-- FIXME close gui object
-					obj.gui = nil
-				end)
-			end
-		})
-		window.motion_group:add(obj.gui, motion_kill)
+		}, {
+			name = "remove",
+		}})
+
+		obj.gui = nil
 	end,
 	move = function(map, obj, waypoint)
-		local points = {}
+		local queue = {}
 		local pos = obj.pos
 
 		for i, d in ipairs(waypoint) do
 			pos = hexagon.direction(pos, d)
-
-			local motion_move = gl_motion.new("move", {
+			table.insert(queue, {
+				name = "move",
 				duration = 0.5,
-				watch = obj.gui.anchor,
-			}, map.gui:tile(pos))
-
-			obj.gui.anchor = motion_move
-			window.motion_group:add(obj.gui, motion_move)
+				args = { map.gui:tile(pos) },
+			})
 		end
+
+		gl_motion.add(obj.gui, queue)
 	end,
 	teleport = function(map, obj, target)
-		local motion_out = gl_motion.new("fade_out", {
+		gl_motion.add(obj.gui, {{
+			name = "fade_out",
 			duration = 0.3,
-			watch = obj.gui.anchor,
-			done = function(self, element, time)
-				element.pos = map.gui:tile(target)
-			end,
-		})
-		window.motion_group:add(obj.gui, motion_out)
-
-		local motion_in = gl_motion.new("fade_in", {
+		}, {
+			name = "move",
+			duration = 0,
+			args = { map.gui:tile(target) },
+		}, {
+			name = "fade_in",
 			duration = 0.3,
-			watch = motion_out,
-		})
-		obj.gui.anchor = motion_in
-		window.motion_group:add(obj.gui, motion_in)
+		}})
 	end,
 	heal = function(map, obj, heal)
 		print("heal", obj.name, heal)
@@ -225,9 +226,7 @@ local function main_game(map_name)
 	local team_count = #map_info.teams
 
 	window:clear()
-
 	local map = require("core/map")(map_info)
-	window.motion_group:commit()
 
 	local tid = 0
 	local round = 1
@@ -240,11 +239,10 @@ local function main_game(map_name)
 --]]
 
 	return window:run(function(wnd)
-		if not wnd.motion_group:check() then
+		if wnd.motion_count > 0 then
 			return
 		end
 		if #action_list > 0 then
-			window.motion_group:reset()
 			local action = table.remove(action_list, 1)
 			assert(type(action) == "table")
 
@@ -292,8 +290,6 @@ local function main_game(map_name)
 			else
 				error(action.cmd)
 			end
-
-			window.motion_group:commit()
 		end
 	end)
 end
@@ -314,25 +310,29 @@ local function main_menu()
 	window:clear()
 	local y = gl_misc.coordinate_radix - 64
 	for i, v in ipairs(map_list) do
-		local l = gl_text.new_text(v, 64)
-		l.pos = {0, y}
-		l.color = {0, 0, 0, 1}
-		l.handler = function(self, wnd, ev, info)
-			if ev == "mouse_move" or ev == "mouse_press" then
-				if self:bound(info.pos) then
-					self.color = {1, 0, 0, 1}
-					if ev == "mouse_press" then
-						map_name = self.str
-						return true
+		local l = window.root:add({
+			type = "text",
+			args = {v, 64},
+			overrides = {
+				pos = {0, y},
+				color = {0, 0, 0, 1},
+				handler = function(self, wnd, ev, info)
+					if ev == "mouse_move" or ev == "mouse_press" then
+						if self:bound(info.pos) then
+							self.color = {1, 0, 0, 1}
+							if ev == "mouse_press" then
+								map_name = self.str
+								return true
+							end
+						else
+							self.color = {0, 0, 0, 1}
+						end
 					end
-				else
-					self.color = {0, 0, 0, 1}
 				end
-			end
-		end
+			},
+		})
 		print(l.str, y)
 		y = y - l.height
-		window:add(l)
 	end
 
 	return window:run(function(wnd)
