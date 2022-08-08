@@ -6,19 +6,43 @@ local motion = require("gl/motion")
 
 
 local element_table = {
+	-- basic elements
+	hub = {
+		new = function(element)
+			return element
+		end,
+	},
 	map = require("gl/map"),
 	image = require("gl/image"),
 	text = require("gl/text"),
+	box = require("gl/box"),
+	hexagon = require("gl/hexagon"),
+
+	-- combined elements
+	button = require("gl/button"),
+	-- list = require("gl/list"),
+	-- progress = require("gl/progress"),
 }
 
 local window_record = {}
 
+local function close_element(element)
+	for i, e in ipairs(element.children) do
+		close_element(e)
+	end
 
-local function new_element(window, parent)
-	return {
+	element.signalled = true
+	element.handler = nil
+	element.children = nil
+	element:close()
+end
+
+
+local function new_element(window, parent, info)
+	return util.merge_table({
 		window = window,
 		parent = parent,
-		layer = misc.layer.common,
+		layer = parent and parent.layer or nil,
 		signalled = false,
 		hidden = false,
 		children = {},
@@ -29,32 +53,28 @@ local function new_element(window, parent)
 		is_signalled = function(self)
 			return self.signalled
 		end,
-		render = function() end,
-		close = function(self)
-			for i, v in ipairs(self.children) do
-				v:close()
-			end
-			self.signalled = true
-			self.children = {}
-		end,
+		close = function(self) end,
 		remove = function(self, obj)
+			if not obj then return end
+
 			for i, v in ipairs(self.children) do
 				if obj == v then
 					table.remove(self.children, i)
 					break
 				end
 			end
-			obj:close()
-			obj.handler = nil
+			close_element(obj)
 		end,
 		add = function(self, element_info)
-			local func = element_table[element_info.type].new
-			if not func then
+			local func
+
+			if element_table[element_info.type] then
+				func = element_table[element_info.type].new
+			else
 				error("unknown element type " .. element_info.type)
 			end
 
-			local element = util.merge_table(new_element(self.window, self), func(table.unpack(element_info.args or {})))
-			element = util.merge_table(element, element_info.overrides or {})
+			local element = func(new_element(self.window, self, element_info))
 
 			table.insert(self.children, element)
 
@@ -67,35 +87,51 @@ local function new_element(window, parent)
 
 			return element
 		end,
-	}
+		clear = function(self)
+			for i, e in ipairs(self.children) do
+				close_element(e)
+			end
+			self.children = {}
+		end,
+	}, info)
 end
 
 
 local function clear(self)
-	self.root:close()
+	close_element(self.root)
 
 	self.handler_table = {}
 	self.schedule_table = {}
-	self.root = new_element(self)
+	self.root = new_element(self, nil, {
+		type = "root",
+	})
 end
 
 local function schedule(self, func, ...)
 	table.insert(self.schedule_table, table.pack(func, ...))
 end
 
-local function step(queue, element, hidden, t)
-	local count = motion.apply(element, t)
+local function step(queue, element, t, aspect_ratio)
+	local count = motion.apply(element, t, aspect_ratio)
 
-	hidden = hidden or element.hidden
-	if hidden then
+	if element.hidden then
 		return count
 	end
 
-	-- element:render(t, w, h)
-	table.insert(queue, element)
+	if element.offset then
+		local ref = element.parent and element.parent.pos or {0, 0}
+		element.pos = {
+			ref[1] + element.offset[1],
+			ref[2] + element.offset[2],
+		}
+	end
+
+	if element.render then
+		table.insert(queue, element)
+	end
 
 	for i, e in ipairs(element.children) do
-		count = count + step(queue, e, hidden, t)
+		count = count + step(queue, e, t, aspect_ratio)
 	end
 
 	return count
@@ -111,17 +147,18 @@ local function run(self, func, ...)
 		gl.clear("color")
 
 		local w, h = glfw.get_window_size(window)
+		local aspect_ratio = h / w
 		local t = glfw.get_time()
 		local queue = {}
 
-		self.motion_count = step(queue, self.root, false, t)
+		self.motion_count = step(queue, self.root, t, aspect_ratio)
 
 		util.stable_sort(queue, function(a, b)
 			return a.layer < b.layer
 		end)
 
-		for i, v in ipairs(queue) do
-			v:render(t, w, h)
+		for i, e in ipairs(queue) do
+			e:render(aspect_ratio)
 		end
 
 		glfw.swap_buffers(window)
@@ -239,9 +276,14 @@ local function on_enter(window, entered)
 	else
 		ev = "mouse_leave"
 	end
-	-- print(ev)
 
-	return on_event(window, ev)
+	local pos = table.pack(glfw.get_cursor_pos(window))
+	local info = {
+		pos = pos,
+		offset = {x, y},
+	}
+
+	return on_event(window, ev, info)
 end
 
 local function new_window(title, w, h)
@@ -252,14 +294,15 @@ local function new_window(title, w, h)
 	glfw.window_hint('context version major', 3)
 	glfw.window_hint('context version minor', 3)
 	glfw.window_hint('opengl profile', 'core')
+	glfw.window_hint('focused', false)
+	-- glfw.window_hint('focus on show', false)
 	local window = glfw.create_window(w, h, title)
 	glfw.make_context_current(window)
 	gl.init()
-	gl.clear_color(1, 1, 1, 1)
-
 	gl.enable("blend")
 	gl.blend_func("src alpha", "one minus src alpha")
 	gl.pixel_store("unpack alignment", 1)
+	gl.clear_color(1, 1, 1, 1)
 
 	glfw.set_window_size_callback(window, on_resize)
 	glfw.set_key_callback(window, on_key)
@@ -277,7 +320,9 @@ local function new_window(title, w, h)
 		schedule = schedule,
 		run = run,
 	}
-	res.root = new_element(res)
+	res.root = new_element(res, nil, {
+		type = "root",
+	})
 
 	window_record[window] = res
 

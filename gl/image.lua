@@ -2,6 +2,7 @@ local gl = require("moongl")
 local img = require("moonimage")
 local misc = require("gl/misc")
 local motion = require("gl/motion")
+local util = require("core/util")
 
 local vertex_shader = string.format([[
 #version 330 core
@@ -44,11 +45,14 @@ local loc_offset
 local loc_texture
 local loc_color
 
+local rc_path = nil
 local image_table = {}
 
-local function render(self, t, w, h)
+local function render(self, aspect_ratio)
+	if not self.texture then return end
+
 	gl.use_program(prog)
-	gl.uniform(loc_ratio, "float", h / w)
+	gl.uniform(loc_ratio, "float", aspect_ratio)
 
 	local rad = math.rad(self.rotation)
 	local rotation = {
@@ -80,6 +84,7 @@ local function render(self, t, w, h)
 end
 
 local function bound(self, pos)
+	-- FIXME consider rotation
 	local left = self.pos[1] - self.scale * self.width / 2
 	local right = self.pos[1] + self.scale * self.width / 2
 
@@ -131,16 +136,18 @@ local function gl_setup()
 	end
 end
 
-local function new_image(path)
-	print(path)
-	gl_setup()
-
+local function load_image(self, path)
+	self.texture = nil
 	if not image_table[path] then
-		local t = gl.new_texture("2d")
 		-- gl.bind_texture("2d", t)
 
-		local image, w, h = img.load(path, "rgba")
+		local res, image, w, h = pcall(img.load, rc_path .. path .. ".png", "rgba")
+		if not res then
+			print("WARNING\tcannot load image " .. path)
+			return
+		end
 
+		local t = gl.new_texture("2d")
 		gl.texture_image("2d", 0, "rgba", "rgba", "ubyte", image, w, h)
 
 		gl.texture_parameter("2d", "base level", 0)
@@ -160,24 +167,42 @@ local function new_image(path)
 		}
 	end
 
-	local g = image_table[path]
+	util.merge_table(self, image_table[path] or {
+		width = 0,
+		height = 0,
+	})
+	self.path = path
+end
 
-	return {
-		layer = misc.layer.common,
-		texture = g.texture,
-		width = g.width,
-		height = g.height,
+local function new_image(element)
+	gl_setup()
+
+	if element.path then
+		load_image(element, element.path)
+	end
+
+	return util.merge_table(element, {
+		load = load_image,
+		render = render,
+		bound = bound,
+	}, {
+		width = 0,
+		height = 0,
 		pos = {0, 0},
 		rotation = 0,
 		scale = 1,
 		color = {1, 1, 1, 1},
-		render = render,
-		bound = bound,
-	}
+	})
 end
 
-
+local function set_rc_path(path)
+	rc_path = path
+	if string.sub(path, -1) ~= '/' then
+		rc_path = rc_path .. '/'
+	end
+end
 
 return {
 	new = new_image,
+	set_rc_path = set_rc_path
 }

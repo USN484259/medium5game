@@ -23,10 +23,11 @@ local hexagon = require("core/hexagon")
 local gl_window = require("gl/window")
 local gl_misc = require("gl/misc")
 local gl_motion = require("gl/motion")
+local gl_image = require("gl/image")
 local gl_text = require("gl/text")
 
+
 -- global variables
-local locale_table
 local window
 
 local element_color = {
@@ -43,37 +44,8 @@ local function show_version()
 	return version[1] .. '.' .. version[2] .. '.' .. version[3]
 end
 
-local function translate(name, ...)
-	local cnt = select("#", ...)
-	if cnt > 0 then
-		local prefix = ""
-		for i = cnt, 1, -1 do
-			prefix = prefix .. (select(i, ...)) .. '.'
-		end
-		name = prefix .. name
-	end
-
-	-- print("translating key: " .. name)
-
-	local l = locale_table
-	for k in string.gmatch(name, "([^%.]+)") do
-		if type(l) ~= "table" then
-			return name
-		end
-		l = l[k]
-	end
-
-	if type(l) == "string" then
-		return l, name
-	elseif type(l) == "table" and type(l[1]) == "string" then
-		return color(l[2]) .. l[1] .. color(), name
-	else
-		return name
-	end
-end
-
 local function floating_text(map, obj, str, color)
-	local pos = map.gui:tile(obj.pos)
+	-- local pos = map.gui:tile(obj.pos)
 
 	gl_motion.add(obj.gui, {{
 		name = "overlay",
@@ -81,18 +53,18 @@ local function floating_text(map, obj, str, color)
 			-- element-info
 			{
 				type = "text",
-				args = { str, 64 },
-				overrides = {
-					color = {
-						color[1],
-						color[2],
-						color[3],
-						0,
-					},
-					pos = {
-						pos[1],
-						pos[2] + map.gui.size / 4,
-					},
+				layer = gl_misc.layer.overlay,
+				str = str,
+				size = 64,
+				color = {
+					color[1],
+					color[2],
+					color[3],
+					0,
+				},
+				offset = {
+					0,
+					map.gui.size / 4,
 				},
 			},
 			-- motion-list
@@ -106,8 +78,8 @@ local function floating_text(map, obj, str, color)
 				name = "move",
 				duration = 0.8,
 				args = {{
-					pos[1],
-					pos[2] + map.gui.size,
+					0,
+					map.gui.size,
 				}},
 				watch = 0,
 			}, {
@@ -122,19 +94,21 @@ local event_table = {
 		local size = math.floor((gl_misc.coordinate_radix * 7 / 8) / (1 + 3 * map.scale / 2))
 		map.gui = window.root:add({
 			type = "map",
-			args = {map.scale, size},
+			layer = gl_misc.layer.background,
+			map = map,
+			size = size,
 		})
 	end,
 	spawn = function(map, obj)
-		local path = "resources/" .. string.sub(obj.name, 1 + string.find(obj.name, '.', 1, true)) .. ".png"
+		local path = string.sub(obj.name, 1 + string.find(obj.name, '.', 1, true))
 		local ui = map.gui:add({
 			type = "image",
-			args = {path},
+			layer = gl_misc.layer.common,
+			path = path,
 		})
 		ui.scale = 3 / 2 * map.gui.size / math.max(ui.width, ui.height)
-		ui.pos = map.gui:tile(obj.pos)
+		ui.offset = map.gui:tile(obj.pos)
 		obj.gui = ui
-
 		ui.color[4] = 0
 		gl_motion.add(ui, {{
 			name = "fade_in",
@@ -224,21 +198,53 @@ local function main_game(map_name)
 	map_info.event_table = event_table
 
 	local team_count = #map_info.teams
+	local control_team
+
+	for i, v in ipairs(map_info.teams) do
+		if v.faction == "player" then
+			control_team = i
+			break
+		end
+	end
 
 	window:clear()
 	local map = require("core/map")(map_info)
 
-	local tid = 0
-	local round = 1
+	-- cmd:	quit, round_start, round_end, action
 	local action_list = {{
 		cmd = "round_start"
 	}}
---[[
-	cmd:	quit, round_start, round_end, action
+	local tid = 0
+	local round = 1
+	local quit_reason = nil
 
---]]
+	local hud = require("hud")(window, {
+		query_action = function()
+			if #action_list == 0 then
+				return nil
+			else
+				return action_list[1].cmd
+			end
+		end,
+		quit = function()
+			quit_reason = "hud"
+		end,
+		end_round = function()
+			table.insert(action_list, {
+				cmd = "round_end",
+			})
+		end,
+		use_skill = function(entity, skill, args)
+			error "TODO"
+		end,
+	}, control_team)
+
+	map.hud = hud
 
 	return window:run(function(wnd)
+		if quit_reason then
+			return quit_reason
+		end
 		if wnd.motion_count > 0 then
 			return
 		end
@@ -246,15 +252,18 @@ local function main_game(map_name)
 			local action = table.remove(action_list, 1)
 			assert(type(action) == "table")
 
-			if action.cmd == "quit" then
-				return action.cmd
-			elseif action.cmd == "round_start" then
+			if action.cmd == "round_start" then
 				print("round_start\tteam: " .. tid .. "\tround: " .. round)
+				hud:round_start(tid, round)
 				action_list = map:round_start(tid, round)
 				if action_list then
 					table.insert(action_list, 1, {
 						cmd = "skill_update",
 					})
+				elseif tid == control_team then
+					action_list = {{
+						cmd = "skill_update",
+					}}
 				else
 					action_list = {{
 						cmd = "round_end",
@@ -263,6 +272,7 @@ local function main_game(map_name)
 			elseif action.cmd == "round_end" then
 				print("round_end\tteam: " .. tid .. "\tround: " .. round)
 				map:round_end(tid, round)
+				hud:round_end(tid, round)
 				if tid == team_count then
 					tid = 0
 					round = round + 1
@@ -308,31 +318,49 @@ local function main_menu()
 	table.sort(map_list)
 
 	window:clear()
+	local last_button = nil
 	local y = gl_misc.coordinate_radix - 64
 	for i, v in ipairs(map_list) do
-		local l = window.root:add({
-			type = "text",
-			args = {v, 64},
-			overrides = {
-				pos = {0, y},
-				color = {0, 0, 0, 1},
-				handler = function(self, wnd, ev, info)
-					if ev == "mouse_move" or ev == "mouse_press" then
-						if self:bound(info.pos) then
-							self.color = {1, 0, 0, 1}
-							if ev == "mouse_press" then
-								map_name = self.str
-								return true
-							end
-						else
-							self.color = {0, 0, 0, 1}
-						end
-					end
-				end
+		local button = window.root:add({
+			type = "button",
+			frame = "box",
+			layer = gl_misc.layer.hud,
+			margin = {40, 20},
+			offset = {0, 0},
+			fill_color = {
+				{0.6, 0.6, 0.6, 0.8},
+				{0.6, 0, 0, 0.8},
+				{0, 0.6, 0, 0.8},
+				{0, 0, 0.6, 0.8},
+				{0.6, 0.6, 0, 0.8},
 			},
+			border_color = {0, 0, 0, 1},
+			label = {
+				type = "text",
+				offset = {0, 0},
+				str = v,
+				size = 64,
+				color = {0, 0, 0, 1},
+			},
+			hover = function(self, val)
+				if val then
+					self.label.color = {1, 0, 0, 1}
+				else
+					self.label.color = {0, 0, 0, 1}
+				end
+			end,
+			press = function(self)
+				map_name = self.label.str
+			end,
 		})
-		print(l.str, y)
-		y = y - l.height
+		if last_button then
+			gl_misc.align(button, "top", 0, last_button)
+		else
+			button.offset = {0, 900}
+		end
+
+		last_button = button
+
 	end
 
 	return window:run(function(wnd)
@@ -341,14 +369,15 @@ local function main_menu()
 end
 
 local function main_window()
+	util.locale_setup(locale, locale_folder)
 	util.random_setup(rng_source, rng_seed or os.time())
-	locale_table = require(locale_folder .. '/' .. locale)
+	gl_image.set_rc_path(resource_folder)
 
 	for i, v in ipairs(font_list) do
 		gl_text.add_face(resource_folder .. '/' .. v)
 	end
 
-	local title = translate("ui.game_title")
+	local title = util.translate("ui.game_title")
 	window = gl_window.new_window(title)
 
 

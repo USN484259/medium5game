@@ -254,15 +254,19 @@ local function action(entity, skill, ...)
 		return false
 	end
 
+	entity.map:event(entity, "skill_init", skill)
+
 	local nowait = (skill.cooldown == 0)
 	local res = skill:use(...)
 
 	if res then
-		entity.map:event(entity, "skill", skill)
+		entity.map:event(entity, "skill_done", skill)
 
 		skill.remain = skill.cooldown
 		entity.energy = entity.energy - cost
 		entity.active = nowait
+	else
+		entity.map:event(entity, "skill_fail", skill)
 	end
 
 	return res

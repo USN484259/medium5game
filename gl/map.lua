@@ -1,5 +1,6 @@
 local gl = require("moongl")
 local misc = require("gl/misc")
+local util = require("core/util")
 
 local vertex_shader = string.format([[
 #version 330 core
@@ -63,11 +64,69 @@ local function tile_pos(pos, size)
 	}
 end
 
-local function make_points(scale, size)
+local function pos2tile(pos, ring, size)
+	local dir = math.deg(math.atan(pos[2], pos[1])) // 60
+	dir = (dir + 6) % 6
+	local dis_p2 = (pos[1] ^ 2 + pos[2] ^ 2) / (size ^ 2)
+
+	local best_tile
+	local best_delta_p2 = (size ^ 2) * 3 / 4
+
+	-- print(string.format("pos2tile\tdir %d, disp2 %f", dir, dis_p2))
+
+	for d = 0, ring, 1 do
+		local outer_p2 = ((1 + 2 * d) ^ 2) * 3 / 4
+		local inner_p2
+		if d < 2 then
+			inner_p2 = 0
+		elseif d % 2 == 0 then
+			inner_p2 = (3 * d / 2 - 1) ^ 2
+		else
+			inner_p2 = (d ^ 2) * 9 / 4 - 3 * d + 7 / 4
+		end
+
+		-- print(string.format("pos2tile\tring %d, outerp2 %f, innerp2 %f", d, outer_p2, inner_p2))
+
+		if dis_p2 > inner_p2 and dis_p2 < outer_p2 then
+			for i = 0, d, 1 do
+				local tile = {d, d * dir + i}
+				local center = tile_pos(tile, size)
+				local delta_p2 = (pos[1] - center[1]) ^ 2 + (pos[2] - center[2]) ^ 2
+
+				-- print(string.format("(%d, %d)\t%f", tile[1], tile[2], delta_p2))
+
+				if delta_p2 < best_delta_p2 then
+					best_tile = tile
+					best_depta_p2 = delta_p2
+				end
+			end
+		end
+	end
+
+--[[
+	if best_tile then
+		print(string.format("pos2tile\tresult (%d, %d)", best_tile[1], best_tile[2]))
+	end
+--]]
+	return best_tile, dir + 1
+end
+
+local function on_event(self, wnd, ev, info)
+	if ev == "mouse_press" then
+		local tile, dir = pos2tile(info.pos, self.map.scale, self.size)
+		if tile then
+			local obj = self.map:get(tile)
+			self.map.hud:select_tile(tile, dir, obj)
+		end
+		return true
+	end
+end
+
+local function make_points(ring, size)
 	local points = { {0, 0} }
 	local pos = {1, 0}
 
-	while pos[1] <= scale do
+	while pos[1] <= ring do
 		table.insert(points, tile_pos(pos, size))
 		pos[2] = pos[2] + 1
 		if pos[2] // pos[1] == 6 then
@@ -117,13 +176,13 @@ local prog
 local loc_ratio
 local loc_offset
 
-local function render(self, t, w, h)
+local function render(self, aspect_ratio)
 	gl.use_program(prog)
 	gl.bind_vertex_array(self.vertex)
+	gl.uniform(loc_ratio, "float", aspect_ratio)
 
 	gl.bind_buffer("array", self.color_buffer)
-	gl.uniform(loc_ratio, "float", h / w)
-	gl.buffer_sub_data("array", 0, gl.pack("float", self.bg_color))
+	gl.buffer_sub_data("array", 0, gl.pack("float", self.fill_color))
 
 
 	for i, offset in ipairs(self.points) do
@@ -131,19 +190,19 @@ local function render(self, t, w, h)
 
 		gl.uniform(loc_offset, "float", table.unpack(offset))
 		if overlay then
-			local colors = make_color(self.bg_color, overlay)
+			local colors = make_color(self.fill_color, overlay)
 			gl.buffer_sub_data("array", 0, gl.pack("float", colors))
 		end
 
 		gl.draw_arrays("triangle fan", 0, 8)
 
 		if overlay then
-			gl.buffer_sub_data("array", 0, gl.pack("float", self.bg_color))
+			gl.buffer_sub_data("array", 0, gl.pack("float", self.fill_color))
 		end
 
 	end
 
-	gl.buffer_sub_data("array", 0, gl.pack("float", self.line_color))
+	gl.buffer_sub_data("array", 0, gl.pack("float", self.border_color))
 
 	for i, offset in ipairs(self.points) do
 		gl.uniform(loc_offset, "float", table.unpack(offset))
@@ -160,12 +219,15 @@ local function set(self, pos, color)
 	self.overlay[index] = color
 end
 
-local function new_map(scale, size)
+local function new_map(element)
 	if not prog then
 		prog = gl.make_program_s("vertex", vertex_shader, "fragment", fragment_shader)
 		loc_ratio = gl.get_uniform_location(prog, "ratio")
 		loc_offset = gl.get_uniform_location(prog, "offset")
 	end
+
+	local ring = element.map.scale
+	local size = element.size
 
 	local points = {0.0, 0.0}
 	for i = 0, 6, 1 do
@@ -185,35 +247,33 @@ local function new_map(scale, size)
 	gl.unbind_buffer("array")
 
 	local bc = gl.new_buffer("array")
-	local bg_color = make_color({0.8, 0.8, 0.8, 1.0})
-	gl.buffer_data("array", gl.pack("float", bg_color), "stream draw")
+	gl.buffer_data("array", gl.sizeof("float") * 4 * 8, "dynamic draw")
 	gl.vertex_attrib_pointer(1, 4, "float", false, 0, 0)
 	gl.enable_vertex_attrib_array(1)
 	gl.unbind_buffer("array")
 
 	gl.unbind_vertex_array()
 
-	local line_color = make_color({0.0, 0.0, 0.0, 1.0})
-	local points = make_points(scale, size)
+	local points = make_points(ring, size)
 
-	return {
-		layer = misc.layer.background,
-		scale = scale,
-		size = size,
+	return util.merge_table(element, {
 		points = points,
-		bg_color = bg_color,
-		line_color = line_color,
 		overlay = {},
 		vertex = v,
 		color_buffer = bc,
 		set = set,
 		render = render,
+		handler = on_event,
 		tile = function(self, pos)
 			return tile_pos(pos, self.size)
 		end,
-	}
+	}, {
+		fill_color = make_color({0.8, 0.8, 0.8, 1.0}),
+		border_color = make_color({0.0, 0.0, 0.0, 1.0}),
+	})
 end
 
 return {
 	new = new_map,
+	make_color = make_color,
 }

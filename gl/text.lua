@@ -2,6 +2,7 @@ local gl = require("moongl")
 local ft = require("moonfreetype")
 local misc = require("gl/misc")
 local motion = require("gl/motion")
+local util = require("core/util")
 
 local vertex_shader = string.format([[
 #version 330 core
@@ -45,24 +46,15 @@ local loc_color
 local ft_lib
 local faces = {}
 
-local function render(self, t, w, h)
+local function render(self, aspect_ratio)
+	if not self.list then return end
+
 	gl.use_program(prog)
-	gl.uniform(loc_ratio, "float", h / w)
+	gl.uniform(loc_ratio, "float", aspect_ratio)
+
 	gl.uniform(loc_color, "float", table.unpack(self.color))
 
-	local base = {self.pos[1], self.pos[2]}
-	local align = self.align or "center"
-	if align == "left" then
-		-- noop
-	elseif align == "right" then
-		base[1] = base[1] - self.scale * self.length
-	else
-		if align ~= "center" then
-			print("WARN", "unknown alignment " .. align)
-		end
-
-		base[1] = base[1] - self.scale * self.length / 2
-	end
+	local base = {self.pos[1] - self.scale * self.width / 2, self.pos[2] + self.scale * self.base}
 
 	gl.active_texture(1)
 	gl.uniform(loc_texture, "int", 1)
@@ -96,23 +88,13 @@ local function render(self, t, w, h)
 end
 
 local function bound(self, pos)
-	local top = self.pos[2] + self.scale * self.ascender
-	local bot = self.pos[2] + self.scale * self.descender
+	local left = self.pos[1] - self.scale * self.width / 2
+	local right = self.pos[1] + self.scale * self.width / 2
 
-	if pos[2] <= bot or pos[2] >= top then
-		return false
-	end
+	local top = self.pos[2] + self.scale * self.height / 2
+	local bot = self.pos[2] - self.scale * self.height / 2
 
-	local x
-	if self.align == "left" then
-		left = self.pos[1]
-	elseif self.align == "right" then
-		x = self.pos[1] - self.scale * self.length
-	else
-		x = self.pos[1] - self.scale * self.length / 2
-	end
-
-	return pos[1] > x and pos[1] < (x + self.scale * self.length)
+	return pos[1] > left and pos[1] < right and pos[2] > bot and pos[2] < top
 end
 
 local function gl_setup()
@@ -156,8 +138,9 @@ local function gl_setup()
 	end
 end
 
-local function new_text(str, size)
-	gl_setup()
+local function set_text(self, str, size)
+	size = size or self.size or 64
+	self.list = nil
 
 	local list = {}
 	local length = 0
@@ -212,22 +195,35 @@ local function new_text(str, size)
 			end
 		end
 	end
-	print(ascender / 64, descender / 64, height / 64)
-	return {
-		layer = misc.layer.overlay,
+
+	local offset = (ascender + descender) / 2
+
+	util.merge_table(self, {
 		str = str,
 		size = size,
 		list = list,
-		length = length,
-		ascender = ascender / 64 or 0,
-		descender = descender / 64 or 0,
+		width = length,
 		height = height / 64 or 0,
+		base = -offset / 64 or 0,
+	})
+end
+
+local function new_text(element)
+	gl_setup()
+
+	if element.str then
+		set_text(element, element.str, element.size)
+	end
+
+	return util.merge_table(element, {
+		set_text = set_text,
+		render = render,
+		bound = bound,
+	}, {
 		scale = 1,
 		pos = {0, 0},
 		color = {0, 0, 0, 1},
-		render = render,
-		bound = bound,
-	}
+	})
 end
 
 

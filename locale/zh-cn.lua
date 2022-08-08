@@ -50,6 +50,7 @@ return {
 		layer = "层",
 		entity = "角色",
 		team = "队",
+		round = "回合",
 		position = "位置",
 		direction = "方向",
 		radius = "半径",

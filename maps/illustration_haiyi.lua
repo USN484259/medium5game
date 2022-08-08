@@ -50,11 +50,11 @@ local function haiyi_action(entity, round)
 			args = table.pack(table.unpack(v, 2)),
 		})
 	end
-
+--[[
 	table.insert(actions, {
 		cmd = "round_end",
 	})
-
+--]]
 	return actions
 end
 
@@ -90,6 +90,7 @@ return {
 	}},
 
 	teams = {{
+		faction = "player",
 		{ "haiyi", {0, 0}, {energy = 400} },
 		{ "chiyu", {4, 10} },
 		round = function(map, tid, round)
