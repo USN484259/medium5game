@@ -1,6 +1,6 @@
 #!/usr/bin/env lua
 
-local version = { 0, 0, 1 }
+local version = { 0, 1, 0 }
 
 -- default config
 local locale = "zh-cn"
@@ -30,23 +30,11 @@ local gl_text = require("gl/text")
 -- global variables
 local window
 
-local element_color = {
-	physical = {0.3, 0.3, 0.3},
-	mental = {0.788, 0.212, 0.882},
-	fire = {0.969, 0.227, 0.227},
-	water = {0.416, 0.788, 0.980},
-	air = {0.502, 0.973, 0.894},
-	light = {0.980, 0.996, 0.451},
-	earth = {1.000, 0.847, 0.361},
-}
-
 local function show_version()
 	return version[1] .. '.' .. version[2] .. '.' .. version[3]
 end
 
 local function floating_text(map, obj, str, color)
-	-- local pos = map.gui:tile(obj.pos)
-
 	gl_motion.add(obj.gui, {{
 		name = "overlay",
 		args = {
@@ -92,22 +80,24 @@ end
 local event_table = {
 	new_map = function(map)
 		local size = math.floor((gl_misc.coordinate_radix * 7 / 8) / (1 + 3 * map.scale / 2))
-		map.gui = window.root:add({
+		local map_element = window.root:add({
 			type = "map",
 			layer = gl_misc.layer.background,
 			map = map,
+			ring = map.scale,
 			size = size,
 		})
+		map.gui = map_element
+		window.root.map = map_element
 	end,
 	spawn = function(map, obj)
-		local path = string.sub(obj.name, 1 + string.find(obj.name, '.', 1, true))
 		local ui = map.gui:add({
 			type = "image",
 			layer = gl_misc.layer.common,
-			path = path,
+			path = obj.name,
 		})
 		ui.scale = 3 / 2 * map.gui.size / math.max(ui.width, ui.height)
-		ui.offset = map.gui:tile(obj.pos)
+		ui.offset = map.gui:tile2point(obj.pos)
 		obj.gui = ui
 		ui.color[4] = 0
 		gl_motion.add(ui, {{
@@ -123,7 +113,7 @@ local event_table = {
 			name = "remove",
 		}})
 
-		obj.gui = nil
+		-- obj.gui = nil
 	end,
 	move = function(map, obj, waypoint)
 		local queue = {}
@@ -134,7 +124,7 @@ local event_table = {
 			table.insert(queue, {
 				name = "move",
 				duration = 0.5,
-				args = { map.gui:tile(pos) },
+				args = { map.gui:tile2point(pos) },
 			})
 		end
 
@@ -147,7 +137,7 @@ local event_table = {
 		}, {
 			name = "move",
 			duration = 0,
-			args = { map.gui:tile(target) },
+			args = { map.gui:tile2point(target) },
 		}, {
 			name = "fade_in",
 			duration = 0.3,
@@ -160,8 +150,8 @@ local event_table = {
 	damage = function(map, obj, damage, element)
 		print("damage", obj.name, damage, element)
 
-		local color = {}
-		for i, c in ipairs(element_color[element]) do
+		local color = gl_misc.element_color(element, {0.2, 0.2, 0.2, 1})
+		for i, c in ipairs(color) do
 			color[i] = c * 0.8
 		end
 		color[4] = 1
@@ -179,6 +169,20 @@ local event_table = {
 	generate = function(map, obj, power)
 		print("generate", obj.name, power)
 		floating_text(map, obj, '⚡' .. tostring(math.floor(power)), {0.0, 0.6, 0.5, 1})
+	end,
+	skill_init = function(map, obj, skill)
+		-- currently no op here
+	end,
+	skill_done = function(map, obj, skill)
+		local str = util.translate(obj.name) .. ' ' .. util.translate("event.skill") .. ' ' .. util.translate(skill.name)
+		map.gui.parent.hud:message(str)
+	end,
+	skill_fail = function(map, obj, skill)
+		local str = util.translate(obj.name) .. ' ' ..util.translate("event.skill_fail") .. ' ' .. util.translate(skill.name)
+		map.gui.parent.hud:message(str)
+	end,
+	seed = function(map, obj, orig_pos)
+		print("FIXME: seed event callback not implemented")
 	end,
 }
 
@@ -207,7 +211,7 @@ local function main_game(map_name)
 		end
 	end
 
-	window:clear()
+	window:clear({0.9, 0.9, 0.9, 1})
 	local map = require("core/map")(map_info)
 
 	-- cmd:	quit, round_start, round_end, action
@@ -235,11 +239,15 @@ local function main_game(map_name)
 			})
 		end,
 		use_skill = function(entity, skill, args)
-			error "TODO"
+			table.insert(action_list, {
+				cmd = "use_skill",
+				entity = entity,
+				skill = skill,
+				args = args,
+			})
 		end,
 	}, control_team)
-
-	map.hud = hud
+	window.root.hud = hud
 
 	return window:run(function(wnd)
 		if quit_reason then
@@ -282,10 +290,10 @@ local function main_game(map_name)
 				table.insert(action_list, {
 					cmd = "round_start",
 				})
-			elseif action.cmd == "action" then
+			elseif action.cmd == "use_skill" then
 				local res = action.entity:action(action.skill, table.unpack(action.args or {}))
 				if not res then
-					print("action failed", action.entity.name, action.skill.name)
+					print("skill failed", action.entity.name, action.skill.name)
 				end
 				table.insert(action_list, 1, {
 					cmd = "skill_update",
@@ -297,6 +305,7 @@ local function main_game(map_name)
 						sk:update()
 					end
 				end
+				hud:update()
 			else
 				error(action.cmd)
 			end
@@ -317,24 +326,75 @@ local function main_menu()
 
 	table.sort(map_list)
 
-	window:clear()
-	local last_button = nil
-	local y = gl_misc.coordinate_radix - 64
+	window:clear({0.4, 0.4, 0.4, 1})
+
+	local background = window.root:add({
+		type = "image",
+		path = "menu.background",
+		layer = gl_misc.layer.background,
+		color = {1, 1, 1, 0.6},
+	})
+	background.scale = gl_misc.coordinate_radix * 2 / background.height
+
+	local menu = window.root:add({
+		type = "hub",
+		layer = gl_misc.layer.hud,
+	})
+	local title = menu:add({
+		type = "text",
+		str = util.translate("game.name"),
+		size = 128,
+		color = {0, 0, 0, 0.6},
+		offset = {0, 0},
+	})
+	gl_misc.align(title, "top", -1000)
+
+	local info = menu:add({
+		type = "text",
+		str = util.translate("lang.version") .. ' ' .. show_version() .. ", " .. util.translate("lang.author") .. ' ' .. util.translate("game.author"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+	})
+	gl_misc.align(info, "top", 20, title)
+
+	local homepage = menu:add({
+		type = "text",
+		str = util.translate("lang.homepage") .. ' ' .. util.translate("game.homepage"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+	})
+	gl_misc.align(homepage, "top", 20, info)
+
+	local map_selector = menu:add({
+		type = "hub",
+		pos = {0, 0},
+	})
+	gl_motion.add(map_selector, {{
+		name = "attach",
+		args = {"left", 40},
+	}})
+
+	local map_hint = map_selector:add({
+		type = "text",
+		str = util.translate("ui.map_select"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+	})
+	gl_misc.align(map_hint, "top", 200, homepage)
+	gl_misc.align(map_hint, "left", 0)
+
+	local last_button = map_hint
 	for i, v in ipairs(map_list) do
-		local button = window.root:add({
+		local button = map_selector:add({
 			type = "button",
 			frame = "box",
-			layer = gl_misc.layer.hud,
 			margin = {40, 20},
 			offset = {0, 0},
-			fill_color = {
-				{0.6, 0.6, 0.6, 0.8},
-				{0.6, 0, 0, 0.8},
-				{0, 0.6, 0, 0.8},
-				{0, 0, 0.6, 0.8},
-				{0.6, 0.6, 0, 0.8},
-			},
-			border_color = {0, 0, 0, 1},
+			fill_color = {1, 1, 1, 0.2},
+			-- border_color = {0, 0, 0, 1},
 			label = {
 				type = "text",
 				offset = {0, 0},
@@ -353,11 +413,8 @@ local function main_menu()
 				map_name = self.label.str
 			end,
 		})
-		if last_button then
-			gl_misc.align(button, "top", 0, last_button)
-		else
-			button.offset = {0, 900}
-		end
+		gl_misc.align(button, "top", 0, last_button)
+		gl_misc.align(button, "left", 0)
 
 		last_button = button
 
@@ -377,7 +434,7 @@ local function main_window()
 		gl_text.add_face(resource_folder .. '/' .. v)
 	end
 
-	local title = util.translate("ui.game_title")
+	local title = util.translate("game.name")
 	window = gl_window.new_window(title)
 
 

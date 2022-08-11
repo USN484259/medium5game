@@ -36,6 +36,7 @@ local function new_button(button)
 
 	if button.image then
 		local mode = button.image.mode
+		button.image.layer = button.image.layer or (button.layer + 1)
 		button.image = button:add(button.image)
 		-- FIXME scale for different modes
 
@@ -49,6 +50,7 @@ local function new_button(button)
 	end
 
 	if button.label then
+		button.label.layer = button.label.layer or (button.layer + 2)
 		button.label = button:add(button.label)
 		-- TODO label alignment & placement
 		if type(button.margin) == "number" then

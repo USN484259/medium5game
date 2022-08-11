@@ -41,9 +41,9 @@ local skill_move = util.merge_table({
 		local entity = self.owner
 		self.enable = core.skill_update(self) and not entity.moved
 	end,
-	use = function(self, waypoint)
+	use = function(self, ...)
 		local entity = self.owner
-
+		local waypoint = table.pack(...)
 		if #waypoint == 0 or #waypoint > self.step then
 			return false
 		end
@@ -73,9 +73,9 @@ local skill_attack = util.merge_table({
 
 		core.skill_update(self)
 	end,
-	use = function(self, target_list)
+	use = function(self, ...)
 		local entity = self.owner
-
+		local target_list = table.pack(...)
 		if not core.multi_target(self, target_list) then
 			return false
 		end

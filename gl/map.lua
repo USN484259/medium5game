@@ -39,19 +39,19 @@ local function tile_index(pos)
 	return 3 * d * (d - 1) + pos[2] + 1
 end
 
-local function tile_pos(pos, size)
-	if pos[1] == 0 then
+local function tile2point(tile, size)
+	if tile[1] == 0 then
 		return {0, 0}
 	end
 	local sqrt3 = math.sqrt(3)
-	local dis = size * pos[1]
-	local dir = math.rad((pos[2] // pos[1]) * 60)
+	local dis = size * tile[1]
+	local dir = math.rad((tile[2] // tile[1]) * 60)
 	local pin = {
 		sqrt3 * dis * math.cos(dir),
 		sqrt3 * dis * math.sin(dir),
 	}
 
-	dis = size * (pos[2] % pos[1])
+	dis = size * (tile[2] % tile[1])
 	dir = dir + math.rad(120)
 	local off = {
 		sqrt3 * dis * math.cos(dir),
@@ -64,10 +64,10 @@ local function tile_pos(pos, size)
 	}
 end
 
-local function pos2tile(pos, ring, size)
-	local dir = math.deg(math.atan(pos[2], pos[1])) // 60
+local function point2tile(pt, ring, size, ref_tile)
+	local dir = math.deg(math.atan(pt[2], pt[1])) // 60
 	dir = (dir + 6) % 6
-	local dis_p2 = (pos[1] ^ 2 + pos[2] ^ 2) / (size ^ 2)
+	local dis_p2 = (pt[1] ^ 2 + pt[2] ^ 2) / (size ^ 2)
 
 	local best_tile
 	local best_delta_p2 = (size ^ 2) * 3 / 4
@@ -89,9 +89,9 @@ local function pos2tile(pos, ring, size)
 
 		if dis_p2 > inner_p2 and dis_p2 < outer_p2 then
 			for i = 0, d, 1 do
-				local tile = {d, d * dir + i}
-				local center = tile_pos(tile, size)
-				local delta_p2 = (pos[1] - center[1]) ^ 2 + (pos[2] - center[2]) ^ 2
+				local tile = {d, math.floor(d * dir + i)}
+				local center = tile2point(tile, size)
+				local delta_p2 = (pt[1] - center[1]) ^ 2 + (pt[2] - center[2]) ^ 2
 
 				-- print(string.format("(%d, %d)\t%f", tile[1], tile[2], delta_p2))
 
@@ -108,15 +108,23 @@ local function pos2tile(pos, ring, size)
 		print(string.format("pos2tile\tresult (%d, %d)", best_tile[1], best_tile[2]))
 	end
 --]]
+
+	if ref_tile then
+		local ref_pt = tile2point(ref_tile, size)
+		dir = (math.deg(math.atan(pt[2] - ref_pt[2], pt[1] - ref_pt[1])) + 30) // 60
+		dir = (dir + 6) % 6
+	end
+
 	return best_tile, dir + 1
 end
 
 local function on_event(self, wnd, ev, info)
-	if ev == "mouse_press" then
-		local tile, dir = pos2tile(info.pos, self.map.scale, self.size)
+	if ev == "mouse_press" and info.button == "left" then
+		local anchor = self.parent.hud:query_anchor()
+		local tile, dir = point2tile(info.pos, self.ring, self.size, anchor)
 		if tile then
 			local obj = self.map:get(tile)
-			self.map.hud:select_tile(tile, dir, obj)
+			self.parent.hud:select_tile(tile, dir, obj)
 		end
 		return true
 	end
@@ -127,7 +135,7 @@ local function make_points(ring, size)
 	local pos = {1, 0}
 
 	while pos[1] <= ring do
-		table.insert(points, tile_pos(pos, size))
+		table.insert(points, tile2point(pos, size))
 		pos[2] = pos[2] + 1
 		if pos[2] // pos[1] == 6 then
 			pos[1] = pos[1] + 1
@@ -226,7 +234,7 @@ local function new_map(element)
 		loc_offset = gl.get_uniform_location(prog, "offset")
 	end
 
-	local ring = element.map.scale
+	local ring = element.ring
 	local size = element.size
 
 	local points = {0.0, 0.0}
@@ -264,8 +272,11 @@ local function new_map(element)
 		set = set,
 		render = render,
 		handler = on_event,
-		tile = function(self, pos)
-			return tile_pos(pos, self.size)
+		tile2point = function(self, tile)
+			return tile2point(tile, self.size)
+		end,
+		point2tile = function(self, point, ref_tile)
+			return point2tile(point, self.ring, self.size, ref_tile)
 		end,
 	}, {
 		fill_color = make_color({0.8, 0.8, 0.8, 1.0}),

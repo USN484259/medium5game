@@ -96,8 +96,7 @@ local function new_element(window, parent, info)
 	}, info)
 end
 
-
-local function clear(self)
+local function clear(self, color)
 	close_element(self.root)
 
 	self.handler_table = {}
@@ -105,6 +104,9 @@ local function clear(self)
 	self.root = new_element(self, nil, {
 		type = "root",
 	})
+
+	glfw.make_context_current(self.window)
+	gl.clear_color(table.unpack(color or {1, 1, 1, 1}))
 end
 
 local function schedule(self, func, ...)
@@ -144,6 +146,7 @@ local function run(self, func, ...)
 			return
 		end
 
+		glfw.make_context_current(window)
 		gl.clear("color")
 
 		local w, h = glfw.get_window_size(window)

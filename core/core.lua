@@ -248,7 +248,7 @@ local function action(entity, skill, ...)
 
 	local cost = skill.cost
 	if skill.type == "waypoint" then
-		cost = cost * #select(1, ...)
+		cost = cost * select('#', ...)
 	end
 	if entity.energy < cost then
 		return false

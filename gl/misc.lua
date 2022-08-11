@@ -1,3 +1,13 @@
+local element_color_table = {
+	physical = {0.3, 0.3, 0.3, 1},
+	mental = {0.788, 0.212, 0.882, 1},
+	fire = {0.969, 0.227, 0.227, 1},
+	water = {0.416, 0.788, 0.980, 1},
+	air = {0.502, 0.973, 0.894, 1},
+	light = {0.980, 0.996, 0.451, 1},
+	earth = {1.000, 0.847, 0.361, 1},
+}
+
 return {
 	coordinate_radix = 0x400,
 	layer = {
@@ -17,6 +27,17 @@ return {
 		front = 0x0F,
 --]]
 	},
+	element_color = function(element, default)
+		if not element_color_table[element] then
+			return default
+		end
+		local res = {}
+		for i, c in ipairs(element_color_table[element]) do
+			res[i] = c
+		end
+
+		return res
+	end,
 	align = function(element, mode, value, ref)
 		if mode == "left" then
 			element.offset[1] =

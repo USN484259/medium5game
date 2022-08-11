@@ -293,8 +293,9 @@ local skill_move = {
 			self.type = "waypoint"
 			util.merge_table(self, cfg.skill.move.ground)
 
-			self.use = function(self, waypoint)
+			self.use = function(self, ...)
 				local entity = self.owner
+				local waypoint = table.pack(...)
 				if #waypoint == 0 or #waypoint > self.step then
 					return false
 				end
@@ -326,13 +327,12 @@ local skill_attack = {
 
 		self.enable = core.skill_update(self) and check_water(self)
 	end,
-	use = function(self, target_list)
+	use = function(self, ...)
 		local entity = self.owner
-
+		local target_list = table.pack(...)
 		if not core.multi_target(self, target_list, true) then
 			return false
 		end
-
 
 		entity.map:damage(entity, target_list, util.merge_table(
 			util.copy_table(self.damage), {
@@ -386,9 +386,9 @@ local skill_bubble = {
 		self.enable = core.skill_update(self) and check_water(self)
 	end,
 
-	use = function(self, target_list)
+	use = function(self, ...)
 		local entity = self.owner
-
+		local target_list = table.pack(...)
 		if not core.multi_target(self, target_list, true) then
 			return false
 		end

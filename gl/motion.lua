@@ -34,6 +34,7 @@ local function motion_add(element, motion_list, line_index)
 			args = v.args or {},
 			duration = v.duration,
 			next = {},
+			skip = v.skip,
 		}
 
 		if v.watch then
@@ -124,13 +125,13 @@ motion_table = {
 			end,
 		}
 	end,
-	attach = function(e, edge) return {
+	attach = function(e, edge, margin) return {
 		skip = true,
 		tick = function(self, element, time, dist, aspect_ratio)
 			if edge == "left" then
-				element.pos[1] = -misc.coordinate_radix / aspect_ratio
+				element.pos[1] = (margin or 0) - misc.coordinate_radix / aspect_ratio
 			elseif edge == "right" then
-				element.pos[1] = misc.coordinate_radix / aspect_ratio
+				element.pos[1] = misc.coordinate_radix / aspect_ratio - (margin or 0)
 			end
 			return true
 		end,

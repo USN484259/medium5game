@@ -78,7 +78,7 @@ local buff_shield = {
 							local blk
 							-- absorb <efficiency> damage using 1 energy
 							blk, damage = core.shield(damage, t.energy_efficiency * origin.energy, t.absorb_efficiency)
-							origin.map:event(origin, "shield", origin.inventory[1], blk)
+							origin.map:event(entity, "shield", origin.inventory[1], blk)
 							origin.energy = math.floor(origin.energy - blk / t.energy_efficiency)
 							return damage
 						end
@@ -117,7 +117,7 @@ local buff_final_guard = {
 							local blk
 							-- absorb <efficiency> damage using 1 energy
 							blk, damage = core.shield(damage, t.energy_efficiency * origin.energy)
-							origin.map:event(origin, "shield", origin, blk)
+							origin.map:event(entity, "shield", origin, blk)
 							origin.energy = origin.energy - blk // t.energy_efficiency
 
 							if damage then
@@ -152,9 +152,9 @@ local skill_move = {
 
 		self.enable = core.skill_update(self) and not entity.moved
 	end,
-	use = function(self, waypoint)
+	use = function(self, ...)
 		local entity = self.owner
-
+		local waypoint = table.pack(...)
 		if #waypoint == 0 or #waypoint > self.step then
 			return false
 		end

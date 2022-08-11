@@ -139,9 +139,12 @@ local function gl_setup()
 end
 
 local function set_text(self, str, size)
-	size = size or self.size or 64
 	self.list = nil
+	if not str then
+		return
+	end
 
+	size = size or self.size or 64
 	local list = {}
 	local length = 0
 	local ascender, descender, height
@@ -220,6 +223,8 @@ local function new_text(element)
 		render = render,
 		bound = bound,
 	}, {
+		width = 0,
+		height = 0,
 		scale = 1,
 		pos = {0, 0},
 		color = {0, 0, 0, 1},
@@ -230,7 +235,7 @@ end
 local function add_face(path, size)
 	size = size or 64
 	local face = ft.new_face(ft_lib, path)
-	print(path, "num_faces: " .. face:num_faces(), "bold: " .. tostring(face:is_bold()), "italic: " .. tostring(face:is_italic()))
+	-- print(path, "num_faces: " .. face:num_faces(), "bold: " .. tostring(face:is_bold()), "italic: " .. tostring(face:is_italic()))
 	if face:num_fixed_sizes() == 0 then
 		face:set_pixel_sizes(0, size)
 	else
@@ -242,7 +247,7 @@ local function add_face(path, size)
 
 	local size_info = face:size()
 	size_info.size = size
-	print(size, size_info.height / 64, size_info.ascender / 64, size_info.descender / 64)
+	-- print(size, size_info.height / 64, size_info.ascender / 64, size_info.descender / 64)
 
 	table.insert(faces, {
 		face = face,
