@@ -1,326 +1,533 @@
 #!/usr/bin/env lua
 
-local version = { 0, 0, 1 }
+local version = { 0, 1, 0 }
 
-local ui_color = "green"
-local input_color = {fg = "red", bg = "cyan"}
-
-local defaults = {
-	locale = "zh-cn",
-	color = true,
-	map_folder = "maps",
-	rng = "os",
-	seed = nil,
+-- default config
+local locale = "zh-cn"
+local font_list = {
+	"wqy-zenhei.ttc",
+	"NotoColorEmoji.ttf",
 }
+local resource_folder = "resources"
+local locale_folder = "locale"
+local map_folder = "maps"
+local rng_source = "os"
+local rng_seed = nil
 
+-- module including
 local platform = require("lua_platform")
-local cli = require("cli")
-
-local map = require("core/map")
 local util = require("core/util")
 local core = require("core/core")
+local hexagon = require("core/hexagon")
+
+local gl_window = require("gl/window")
+local gl_misc = require("gl/misc")
+local gl_motion = require("gl/motion")
+local gl_image = require("gl/image")
+local gl_text = require("gl/text")
+
+
+-- global variables
+local window
 
 local function show_version()
 	return version[1] .. '.' .. version[2] .. '.' .. version[3]
 end
 
-local function show_banner(name, postfix)
-	local sep = "--------"
-	local str = '\n' .. cli.color(ui_color) .. sep .. cli.translate(name)
-	if postfix then
-		str = str .. cli.color() .. ' ' .. postfix .. cli.color(ui_color)
-	end
-	str = str .. sep .. cli.color()
-	print(str)
+local function floating_text(map, obj, str, color)
+	gl_motion.add(obj.gui, {{
+		name = "overlay",
+		args = {
+			-- element-info
+			{
+				type = "text",
+				layer = gl_misc.layer.overlay,
+				str = str,
+				size = 64,
+				color = {
+					color[1],
+					color[2],
+					color[3],
+					0,
+				},
+				offset = {
+					0,
+					map.gui.size / 4,
+				},
+			},
+			-- motion-list
+			{{
+				name = "fade_in",
+				duration = 0.3,
+				args = { color[4] },
+			}, {
+				name = "signal",
+			}, {
+				name = "move",
+				duration = 0.8,
+				args = {{
+					0,
+					map.gui.size,
+				}},
+				watch = 0,
+			}, {
+				name = "remove",
+			}},
+		}
+	}})
 end
 
-local function show_detail(entity)
-	show_banner("lang.entity")
-	cli.show_entity(entity, print)
+local event_table = {
+	new_map = function(map)
+		print("new_map", map.scale)
+		local size = math.floor((gl_misc.coordinate_radix * 7 / 8) / (1 + 3 * map.scale / 2))
+		local map_element = window.root:add({
+			type = "map",
+			layer = gl_misc.layer.background,
+			map = map,
+			ring = map.scale,
+			size = size,
+		})
+		map.gui = map_element
+		window.root.map = map_element
+	end,
+	spawn = function(map, obj)
+		print("spawn", obj.name, hexagon.print(obj.pos))
+		local ui = map.gui:add({
+			type = "image",
+			layer = gl_misc.layer.common,
+			path = obj.name,
+		})
+		ui.scale = 3 / 2 * map.gui.size / math.max(ui.width, ui.height)
+		ui.offset = map.gui:tile2point(obj.pos)
+		obj.gui = ui
+		ui.color[4] = 0
+		gl_motion.add(ui, {{
+			name = "fade_in",
+			duration = 0.6,
+		}})
+	end,
+	kill = function(map, obj)
+		print("kill", obj.name, hexagon.print(obj.pos))
+		gl_motion.add(obj.gui, {{
+			name = "fade_out",
+			duration = 0.6,
+		}, {
+			name = "remove",
+		}})
 
-	show_banner("lang.item")
-	cli.show_item(entity, function(str, item)
-		print(str)
-	end)
+		-- obj.gui = nil
+	end,
+	move = function(map, obj, waypoint)
+		local queue = {}
+		local pos = obj.pos
+		local str = hexagon.print(pos)
 
-	for i, sk in ipairs(entity.skills) do
-		sk:update()
+		for i, d in ipairs(waypoint) do
+			pos = hexagon.direction(pos, d)
+			table.insert(queue, {
+				name = "move",
+				duration = 0.5,
+				args = { map.gui:tile2point(pos) },
+			})
+			str = str .. "==>" .. hexagon.print(pos)
+		end
+
+		print("move", obj.name, str)
+		gl_motion.add(obj.gui, queue)
+	end,
+	teleport = function(map, obj, target)
+		print("teleport", obj.name, hexagon.print(target))
+		gl_motion.add(obj.gui, {{
+			name = "fade_out",
+			duration = 0.3,
+		}, {
+			name = "move",
+			duration = 0,
+			args = { map.gui:tile2point(target) },
+		}, {
+			name = "fade_in",
+			duration = 0.3,
+		}})
+	end,
+	heal = function(map, obj, heal)
+		print("heal", obj.name, heal)
+		floating_text(map, obj, '+' .. tostring(math.floor(heal)), {0, 0.7, 0, 1})
+	end,
+	damage = function(map, obj, damage, element)
+		print("damage", obj.name, damage, element)
+
+		local color = gl_misc.element_color(element, {0.2, 0.2, 0.2, 1})
+		for i, c in ipairs(color) do
+			color[i] = c * 0.8
+		end
+		color[4] = 1
+
+		floating_text(map, obj, tostring(math.floor(damage)), color)
+	end,
+	miss = function(map, obj)
+		print("miss", obj.name)
+		floating_text(map, obj, "miss", {0.3, 0.3, 0.3, 1})
+	end,
+	shield = function(map, obj, sh, blk)
+		print("shield", obj.name, sh.name, blk)
+		floating_text(map, obj, '🛡' .. tostring(math.floor(blk)), {0.3, 0.3, 0.3, 1})
+	end,
+	generate = function(map, obj, power)
+		print("generate", obj.name, power)
+		floating_text(map, obj, '⚡' .. tostring(math.floor(power)), {0.0, 0.6, 0.5, 1})
+	end,
+	skill_init = function(map, obj, skill)
+		print("skill", obj.name, skill.name)
+		-- currently no op here
+	end,
+	skill_done = function(map, obj, skill)
+		print("skill_done", obj.name, skill.name)
+		local str = util.translate(obj.name) .. ' ' .. util.translate("event.skill") .. ' ' .. util.translate(skill.name)
+		map.gui.parent.hud:message(str)
+	end,
+	skill_fail = function(map, obj, skill)
+		print("skill_fail", obj.name, skill.name)
+		local str = util.translate(obj.name) .. ' ' ..util.translate("event.skill_fail") .. ' ' .. util.translate(skill.name)
+		map.gui.parent.hud:message(str)
+	end,
+	seed = function(map, obj, orig_pos)
+		print("FIXME: seed event callback not implemented")
+	end,
+}
+
+local function main_game(map_name)
+	local chunk, err = loadfile(map_folder .. '/' .. map_name .. ".lua")
+	if not chunk then
+		print("failed to load map " .. map_name, err)
+		return true
 	end
 
-	show_banner("lang.skill")
-	local i = 1
-	cli.show_skill(entity, function(str, sk)
-		if i % 2 == 0 then
-			str = cli.color({}) .. str .. cli.color()
-		end
-		print(i .. '\t' .. str)
-		i = i + 1
-	end)
-end
-
-local function action_menu(entity)
-	while true do
-		local sk
-		local args
-		while true do
-			print(cli.color(ui_color) .. cli.translate("ui.skill_select") .. cli.color())
-			io.write(cli.color(input_color))
-			local cmd = io.read()
-			print(cli.color())
-			if cmd == "?" then
-				print(cli.translate("ui.skill_help"))
-			else
-				sk = nil
-				args = nil
-				for s in string.gmatch(cmd, '([^%s]+)') do
-					if args then
-						local val = tonumber(s)
-						table.insert(args, val or s)
-					else
-						local index = tonumber(s)
-						if index == 0 then
-							return false
-						end
-						sk = entity.skills[index]
-						args = {}
-					end
-				end
-
-				if sk then
-					break
-				end
-			end
-		end
-
-		local res
-		if sk.type == "target" or sk.type == "waypoint" then
-			res = entity:action(sk, args)
-		elseif sk.type == "line" then
-			res = entity:action(sk, { args[1], args[2] }, args[3])
-		elseif sk.type == "multitarget" then
-			local list = {}
-			for i = 1, #args, 2 do
-				table.insert(list, {args[i], args[i + 1]})
-			end
-
-			res = entity:action(sk, list)
-		else
-			res = entity:action(sk, table.unpack(args))
-		end
-
-		if res then
-			return true
-		end
-
-		print(cli.color(ui_color) .. cli.translate("ui.skill_failed") .. cli.color() .. ' ' .. cli.translate(sk.name))
-	end
-end
-
-local function player_control(map, tid, round)
-	while true do
-		local team = {}
-		show_banner("lang.map")
-		cli.show_map(map, function(str, entity)
-			if entity.team == tid then
-				local i = #team + 1
-				print(i .. '\t' .. str)
-				team[i] = entity
-			else
-				print("-\t" .. str)
-			end
-		end)
-		if #team == 0 then
-			print(cli.color(ui_color) .. cli.translate("ui.game_lose") .. cli.color())
-			return false
-		end
-		local selection
-		while true do
-			print(cli.color(ui_color) .. cli.translate("ui.entity_select") .. cli.color())
-			io.write(cli.color(input_color))
-			local str = io.read()
-			print(cli.color())
-
-			if str == "x" then
-				print(cli.color(ui_color) .. cli.translate("ui.map_exit") .. cli.color())
-				return false
-			end
-
-			selection = tonumber(str)
-			if math.type(selection) == "integer" and selection >= 0 and selection <= #team then
-				break
-			end
-		end
-
-		if selection == 0 then
-			return true
-		end
-
-		local entity = team[selection]
-		local i = 1
-		show_banner("lang.layer", cli.translate(entity.element, "element"))
-		cli.show_layer(map, entity.element, function(str)
-			if i % 2 == 0 then
-				str = cli.color({}) .. str .. cli.color()
-			end
-			print(str)
-			i = i + 1
-		end)
-
-		show_detail(entity)
-
-		if not entity.active then
-			print(cli.color(ui_color) .. cli.translate("ui.entity_inactive") .. cli.color())
-		else
-			while true do
-				local res = action_menu(entity)
-				if not res or not entity.active then
-					break
-				end
-				show_detail(entity)
-			end
-
-		end
+	local res, map_info = pcall(chunk)
+	if not res or type(map_info) ~= "table" then
+		print("failed to load map " .. map_name, map_info)
+		return true
 	end
 
-end
+	map_info.event_table = event_table
 
-local function enemy_control(map, tid, round)
-	local team = map:get_team(tid)
-	if #team == 0 then
-		print(cli.color(ui_color) .. cli.translate("ui.game_win") .. cli.color())
-		return false
-	end
-	for k, e in pairs(team) do
-		for i, sk in ipairs(e.skills) do
-			e:action(sk)
-		end
-	end
-	return true
-end
+	local team_count = #map_info.teams
+	local control_team
 
-local function main_menu(map_folder, map_list)
-	show_banner("ui.game_menu")
-
-	for i, v in ipairs(map_list) do
-		local str = i .. '\t' .. v
-		if i % 2 == 0 then
-			str = cli.color({}) .. str .. cli.color()
-		end
-		print(str)
-	end
-
-	print(cli.color(ui_color) .. cli.translate("ui.map_select") .. cli.color())
-	io.write(cli.color(input_color))
-	local str = io.read()
-	print(cli.color())
-	if str == "x" then
-		return false
-	elseif str == "?" then
-		print(cli.translate("ui.game_title") .. ' v' .. show_version() .. '\n' .. cli.translate("ui.game_about"))
-	else
-		local sel = tonumber(str)
-		if map_list[sel] then
-			local name = map_folder
-			local sep = string.sub(package.config, 1, 1)
-			if string.sub(name, -1) ~= sep then
-				name = name .. sep
-			end
-			name = name .. map_list[sel]
-			print(cli.color(ui_color) .. cli.translate("ui.map_load") .. name .. cli.color())
-
-			local res, map_info = pcall(require, name)
-			if res and type(map_info) == "table" then
-				for i, v in ipairs(map_info.teams) do
-					util.merge_table(v, cli.event_table)
-					if type(v.round) == "string" then
-						if v.round == "player" then
-							v.round = player_control
-						elseif v.round == "enemy" then
-							v.round = enemy_control
-						else
-							error(v.round)
-						end
-					end
-				end
-
-				map(map_info):run()
-			else
-				print(cli.color(ui_color) .. cli.translate("ui.map_failed") .. name .. " (" .. map_info .. ')' .. cli.color())
-			end
-		end
-	end
-
-	return true
-end
-
-local function main(args)
-	-- for windows platform
-	os.setlocale(".utf8")
-
-	local cfg = util.copy_table(defaults)
-	for i = 1, #args, 1 do
-		local option = args[i]
-		if option == "-h" then
-			print(args[0] .. ' ' .. "[options]")
-			print("\t-l <locale>\tset locale")
-			print("\t-c <on/off>\ttoggle color mode")
-			print("\t-m <path>\tset map folder path")
-			print("\t-r <rng>[,<seed>]\tset random source & seed")
-			print("\t-h\tshow this help")
-			-- print help
-			return
-		elseif option == "-l" then
-			i = i + 1
-			cfg.locale = args[i]
-		elseif option == "-c" then
-			i = i + 1
-			local v = string.lower(args[i])
-			if v == "on" or v == "true" or v == "yes" then
-				cfg.color = true
-			elseif v == "off" or v == "false" or v == "no" then
-				cfg.color = false
-			end
-		elseif option == "-m" then
-			i = i + 1
-			cfg.map_folder = args[i]
-		elseif option == "-r" then
-			i = i + 1
-			local v = args[i]
-			local seed = nil
-			local pos = string.find(v, ',')
-			if pos then
-				seed = tonumber(string.sub(v, pos + 1))
-				v = string.sub(v, 1, pos - 1)
-			end
-			cfg.rng = v
-			cfg.seed = seed
-		else
-			error("unknown option " .. option)
-		end
-	end
-
-	util.random_setup(cfg.rng, cfg.seed or os.time())
-	cli.set("locale", cfg.locale)
-	cli.set("color", cfg.color)
-
-	print(cli.color(ui_color) .. cli.translate("ui.game_title") .. ' v' .. show_version() .. cli.color())
-
-	while true do
-		local l = platform.ls(cfg.map_folder)
-		local map_list = {}
-		for k, v in pairs(l) do
-			if v == "FILE" and string.lower(string.sub(k, -4)) == ".lua" then
-				table.insert(map_list, string.sub(k, 1, -5))
-			end
-		end
-
-		table.sort(map_list)
-		if not main_menu(cfg.map_folder, map_list) then
+	for i, v in ipairs(map_info.teams) do
+		if v.faction == "player" then
+			control_team = i
 			break
 		end
 	end
 
-	print(cli.color(ui_color) .. cli.translate("ui.game_exit") .. cli.color())
+	window:clear({0.9, 0.9, 0.9, 1})
+	local map = require("core/map")(map_info)
+
+	-- cmd:	quit, round_start, round_end, action
+	local action_list = {{
+		cmd = "round_start"
+	}}
+	local tid = 0
+	local round = 1
+	local quit_reason = nil
+
+	local hud = require("hud")(window, {
+		query_action = function()
+			if #action_list == 0 then
+				return nil
+			else
+				return action_list[1].cmd
+			end
+		end,
+		quit = function()
+			quit_reason = "hud"
+		end,
+		end_round = function()
+			table.insert(action_list, {
+				cmd = "round_end",
+			})
+		end,
+		use_skill = function(entity, skill, args)
+			table.insert(action_list, {
+				cmd = "use_skill",
+				entity = entity,
+				skill = skill,
+				args = args,
+			})
+		end,
+	}, control_team)
+	window.root.hud = hud
+
+	return window:run(function(wnd)
+		if quit_reason then
+			return quit_reason
+		end
+		if wnd.motion_count > 0 then
+			return
+		end
+		if #action_list > 0 then
+			local action = table.remove(action_list, 1)
+			assert(type(action) == "table")
+
+			if action.cmd == "round_start" then
+				print("round_start\tteam: " .. tid .. "\tround: " .. round)
+				hud:round_start(tid, round)
+				if tid == control_team then
+					hud:message(util.translate("ui.round_start") .. ' ' .. round)
+				end
+				action_list = map:round_start(tid, round)
+				if action_list then
+					table.insert(action_list, 1, {
+						cmd = "skill_update",
+					})
+				elseif tid == control_team then
+					action_list = {{
+						cmd = "skill_update",
+					}}
+				else
+					action_list = {{
+						cmd = "round_end",
+					}}
+				end
+			elseif action.cmd == "round_end" then
+				print("round_end\tteam: " .. tid .. "\tround: " .. round)
+				map:round_end(tid, round)
+				hud:round_end(tid, round)
+				if tid == control_team then
+					hud:message(util.translate("ui.round_end") .. ' ' .. round)
+				end
+				if tid == team_count then
+					tid = 0
+					round = round + 1
+				else
+					tid = tid + 1
+				end
+				table.insert(action_list, {
+					cmd = "round_start",
+				})
+			elseif action.cmd == "use_skill" then
+				local res = action.entity:action(action.skill, table.unpack(action.args or {}))
+				if not res then
+					print("skill failed", action.entity.name, action.skill.name)
+				end
+				table.insert(action_list, 1, {
+					cmd = "skill_update",
+				})
+			elseif action.cmd == "skill_update" then
+				local team = map:get_team(tid)
+				for k, e in ipairs(team) do
+					for i, sk in ipairs(e.skills) do
+						sk:update()
+					end
+				end
+				hud:update()
+			else
+				error(action.cmd)
+			end
+		end
+	end)
 end
 
-main(arg)
+local function hyper_link(url)
+	return function(self, wnd, ev, info)
+		if string.sub(ev, 1, 6) ~= "mouse_" then
+			return
+		end
+
+		if self:bound(info.pos) then
+			self.color = {1, 0, 0, 1}
+			if ev == "mouse_press" and info.button == "left" then
+				platform.launch(url)
+				return true
+			end
+		else
+			self.color = {0, 0, 0, 1}
+		end
+	end
+end
+
+local function main_menu()
+	local l = platform.ls(map_folder)
+	local map_list = {}
+	local map_name = nil
+	for k, v in pairs(l) do
+		-- TODO check symbolic link
+		if string.lower(string.sub(k, -4)) == ".lua" then
+			table.insert(map_list, string.sub(k, 1, -5))
+		end
+	end
+
+	table.sort(map_list)
+
+	window:clear({0.4, 0.4, 0.4, 1})
+
+	local background = window.root:add({
+		type = "image",
+		path = "menu.background",
+		layer = gl_misc.layer.background,
+		color = {1, 1, 1, 0.6},
+	})
+	background.scale = gl_misc.coordinate_radix * 2 / background.height
+
+	local menu = window.root:add({
+		type = "hub",
+		layer = gl_misc.layer.hud,
+	})
+	local title = menu:add({
+		type = "text",
+		str = util.translate("game.name"),
+		size = 128,
+		color = {0, 0, 0, 0.6},
+		offset = {0, 0},
+	})
+	gl_misc.align(title, "top", -1000)
+
+	local info = menu:add({
+		type = "hub",
+		pos = {0, 0},
+	})
+	gl_motion.add(info, {{
+		name = "attach",
+		args = {"right", 40},
+	}})
+
+	local version = info:add({
+		type = "text",
+		str = util.translate("lang.version") .. ' ' .. show_version(),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+		handler = hyper_link("https://github.com/USN484259/medium5game"),
+	})
+	gl_misc.align(version, "top", 200, title)
+	gl_misc.align(version, "right", 0)
+
+	local designer = info:add({
+		type = "text",
+		str = util.translate("lang.designer") .. ' ' .. util.translate("game.designer"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+		handler = hyper_link("https://www.bilibili.com/read/cv12782058"),
+	})
+	gl_misc.align(designer, "top", 0, version)
+	gl_misc.align(designer, "right", 0)
+
+	local programmer = info:add({
+		type = "text",
+		str = util.translate("lang.programmer") .. ' ' .. util.translate("game.programmer"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+		handler = hyper_link("https://space.bilibili.com/281370673"),
+	})
+	gl_misc.align(programmer, "top", 0, designer)
+	gl_misc.align(programmer, "right", 0)
+
+	local illustrator = info:add({
+		type = "text",
+		str = util.translate("lang.illustrator") .. ' ' .. util.translate("game.menu_illustrator"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+		handler = hyper_link("https://t.bilibili.com/285555152696424104"),
+	})
+	gl_misc.align(illustrator, "top", 0, programmer)
+	gl_misc.align(illustrator, "right", 0)
+
+	local ip_owner = info:add({
+		type = "text",
+		str = util.translate("lang.ip_owner") .. ' ' .. util.translate("game.ip_owner"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+		handler = hyper_link("https://space.bilibili.com/623328493"),
+	})
+	gl_misc.align(ip_owner, "top", 0, illustrator)
+	gl_misc.align(ip_owner, "right", 0)
+
+	local map_selector = menu:add({
+		type = "hub",
+		pos = {0, 0},
+	})
+	gl_motion.add(map_selector, {{
+		name = "attach",
+		args = {"left", 40},
+	}})
+
+	local map_hint = map_selector:add({
+		type = "text",
+		str = util.translate("ui.map_select"),
+		size = 64,
+		color = {0, 0, 0, 1},
+		offset = {0, 0},
+	})
+	gl_misc.align(map_hint, "top", 200, title)
+	gl_misc.align(map_hint, "left", 0)
+
+	local last_button = map_hint
+	for i, v in ipairs(map_list) do
+		local button = map_selector:add({
+			type = "button",
+			frame = "box",
+			margin = {40, 20},
+			offset = {0, 0},
+			fill_color = {1, 1, 1, 0.2},
+			-- border_color = {0, 0, 0, 1},
+			label = {
+				type = "text",
+				offset = {0, 0},
+				str = v,
+				size = 64,
+				color = {0, 0, 0, 1},
+			},
+			hover = function(self, val)
+				if val then
+					self.label.color = {1, 0, 0, 1}
+				else
+					self.label.color = {0, 0, 0, 1}
+				end
+			end,
+			press = function(self)
+				map_name = self.label.str
+			end,
+		})
+		gl_misc.align(button, "top", 0, last_button)
+		gl_misc.align(button, "left", 0)
+
+		last_button = button
+
+	end
+
+	return window:run(function(wnd)
+		return map_name
+	end)
+end
+
+local function main_window()
+	util.locale_setup(locale, locale_folder)
+	util.random_setup(rng_source, rng_seed or os.time())
+	gl_image.set_rc_path(resource_folder)
+
+	for i, v in ipairs(font_list) do
+		gl_text.add_face(resource_folder .. '/' .. v)
+	end
+
+	local title = util.translate("game.name")
+	window = gl_window.new_window(title)
+
+
+	while true do
+		local map_name = main_menu()
+		if not map_name then
+			break
+		end
+
+		if not main_game(map_name) then
+			break
+		end
+	end
+end
+
+return main_window()

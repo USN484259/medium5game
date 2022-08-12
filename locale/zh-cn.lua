@@ -10,8 +10,14 @@ local element = {
 }
 
 return {
+	game = {
+		name = "五维介质同人游戏",
+		designer = "朦朦的卡比兽",
+		programmer = "USN484259",
+		menu_illustrator = "Kieed",
+		ip_owner = "五维介质企划",
+	},
 	ui = {
-		game_title = "五维介质同人游戏",
 		game_exit = "退出游戏",
 		game_about = "(还没有想好游戏名)\n"
 			.. "作者 USN484259\n"
@@ -23,7 +29,7 @@ return {
 		game_win = "游戏结束",
 		game_lose = "游戏结束",
 		game_menu = "主菜单",
-		map_select = "选择地图，x退出游戏，?显示信息",
+		map_select = "选择地图",
 		map_load = "加载地图",
 		map_failed = "无法加载地图",
 		map_exit = "退出地图",
@@ -46,10 +52,16 @@ return {
 	lang = {
 		["true"] = "是",
 		["false"] = "否",
+		version = "版本",
+		designer = "设计",
+		programmer = "编程",
+		illustrator = "背景",
+		ip_owner = "IP版权方",
 		map = "场地",
 		layer = "层",
 		entity = "角色",
 		team = "队",
+		round = "回合",
 		position = "位置",
 		direction = "方向",
 		radius = "半径",
@@ -68,6 +80,7 @@ return {
 		shield = "阻挡攻击",
 		generate = "获得能量",
 		skill = "使用技能",
+		skill_fail = "技能失败",
 		seed = "投掷物",
 	},
 	element = element,
@@ -79,14 +92,14 @@ return {
 		speed = "速度",
 		accuracy = "精准",
 
-		stardust = { "星尘", "magenta" },
-		haiyi = { "海伊", "blue" },
-		cangqiong = { "苍穹", "cyan" },
-		chiyu = { "赤羽", "red" },
-		shian = { "诗岸", "yellow" },
+		stardust ="星尘",
+		haiyi = "海伊",
+		cangqiong = "苍穹",
+		chiyu = "赤羽",
+		shian = "诗岸",
 
-		bubble = { "水泡", {} },
-		toolman = { "工具人", {} },
+		bubble = "水泡",
+		toolman = "工具人",
 	},
 	status = {
 		ultimate = "终极技能",

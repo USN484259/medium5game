@@ -74,6 +74,50 @@ local function random(mode, ...)
 	end
 end
 
+local locale_table = nil
+
+local function locale_setup(locale, folder)
+	local path = folder or "."
+	if string.sub(path, -1) ~= '/' then
+		path = path .. '/'
+	end
+	path = path .. locale .. ".lua"
+
+	local chunk, err = loadfile(path)
+	if not chunk then
+		error("failed to load locale " .. path)
+	end
+
+	locale_table = chunk()
+end
+
+local function translate(name, ...)
+	local cnt = select("#", ...)
+	if cnt > 0 then
+		local prefix = ""
+		for i = cnt, 1, -1 do
+			prefix = prefix .. (select(i, ...)) .. '.'
+		end
+		name = prefix .. name
+	end
+
+	-- print("translating key: " .. name)
+
+	local l = locale_table
+	for k in string.gmatch(name, "([^%.]+)") do
+		if type(l) ~= "table" then
+			return name
+		end
+		l = l[k]
+	end
+
+	if type(l) == "string" then
+		return l
+	else
+		return name
+	end
+end
+
 local function find(table, val, cmp)
 	for k, v in pairs(table) do
 		if (cmp and cmp(v, val)) or (v == val) then
@@ -143,11 +187,17 @@ local function unique_insert(tab, val, cmp)
 	return table.insert(tab, val)
 end
 
-local function merge_table(tar, src)
-	for k,v in pairs(src) do
+local function merge_table(tar, src, weak)
+	for k, v in pairs(src) do
 		if type(v) == "table" and type(tar[k]) == "table" then
 			tar[k] = merge_table(tar[k], v)
 		else
+			tar[k] = v
+		end
+	end
+
+	for k, v in pairs(weak or {}) do
+		if type(tar[k]) == "nil" then
 			tar[k] = v
 		end
 	end
@@ -158,6 +208,8 @@ end
 return {
 	random_setup = random_setup,
 	random = random,
+	locale_setup = locale_setup,
+	translate = translate,
 	find = find,
 	stable_sort = stable_sort,
 	dump_table = dump_table,

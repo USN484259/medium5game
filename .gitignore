@@ -1,0 +1,8 @@
+*.swp
+*.so
+*.dll
+moongl/
+resources/
+TODO
+test.lua
+

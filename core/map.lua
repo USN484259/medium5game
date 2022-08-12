@@ -17,7 +17,7 @@ local function layer_set(self, layer, ...)
 end
 
 local function get(self, pos)
-	for k, e in pairs(self.entities) do
+	for i, e in ipairs(self.entities) do
 		if hexagon.cmp(pos, e.pos) then
 			return e
 		end
@@ -26,7 +26,7 @@ end
 
 local function get_area(self, area)
 	local list = {}
-	for k, v in pairs(area) do
+	for i, v in ipairs(area) do
 		local e = self:get(v)
 		if e then
 			table.insert(list, e)
@@ -37,7 +37,7 @@ end
 
 local function get_team(self, team)
 	local list = {}
-	for k, e in pairs(self.entities) do
+	for i, e in ipairs(self.entities) do
 		if e.team == team then
 			table.insert(list, e)
 		end
@@ -62,7 +62,7 @@ local function damage(self, src, area, damage, func, ...)
 
 	local count = 0
 	local killed = {}
-	for k, p in pairs(area) do
+	for i, p in ipairs(area) do
 		local e = self:get(p)
 		if e and (team == 0 or e.team ~= team) then
 			local d, k = core.damage(e, damage)
@@ -81,7 +81,7 @@ local function damage(self, src, area, damage, func, ...)
 end
 
 local function heal(self, src, area, heal, func, ...)
-	for k, p in pairs(area) do
+	for i, p in ipairs(area) do
 		local e = self:get(p)
 		if e and e.team == src.team then
 			local val
@@ -131,12 +131,12 @@ local function spawn(self, team, name, pos, ...)
 end
 
 local function kill(self, obj)
-	for k, v in pairs(self.entities) do
+	for i, v in ipairs(self.entities) do
 		if v == obj then
 			if obj.death then
 				obj:death()
 			end
-			table.remove(self.entities, k)
+			table.remove(self.entities, i)
 			self:event(obj, "kill")
 			return true
 		end
@@ -149,8 +149,8 @@ local function contact(self, seed)
 	while step > 0 do
 		local orig_pos = seed.pos
 		local moved = false
-		for i = 1, #self.layers, 1 do
-			local seed = self.layers[i]:contact(seed)
+		for _, l in ipairs(self.layers) do
+			local seed = l:contact(seed)
 			if not seed then
 				return nil
 			end
@@ -170,21 +170,21 @@ local function contact(self, seed)
 	return seed
 end
 
-local function tick(self, tid, round)
+local function round_start(self, tid, round)
 	if self.teams[tid] and self.teams[tid].round_start then
 		self.teams[tid].round_start(self, tid, round)
 	end
 
 	-- layers tick
-	for i = 1, #self.layers, 1 do
-		self.layers[i]:tick(tid)
+	for _, l in ipairs(self.layers) do
+		l:tick(tid)
 	end
 
 	local team = self:get_team(tid)
-	for k, e in pairs(team) do
+	for i, e in ipairs(team) do
 		-- layers apply
-		for i = 1, #self.layers, 1 do
-			self.layers[i]:apply(e)
+		for _, l in ipairs(self.layers) do
+			l:apply(e)
 		end
 
 		e.status = {}
@@ -202,7 +202,7 @@ local function tick(self, tid, round)
 
 	buff.tick(team)
 
-	for k, e in pairs(team) do
+	for i, e in ipairs(team) do
 		if not e:alive() then
 			self:kill(e)
 		elseif e.tick then
@@ -210,36 +210,23 @@ local function tick(self, tid, round)
 		end
 	end
 
-	local res = true
 	if self.teams[tid] and self.teams[tid].round then
-		res = self.teams[tid].round(self, tid, round)
+		return self.teams[tid].round(self, tid, round)
 	end
+end
 
+local function round_end(self, tid, round)
 	buff.defer(self:get_team(tid))
 
 	if self.teams[tid] and self.teams[tid].round_end then
 		self.teams[tid].round_end(self, tid, round)
 	end
-
-	return res
-end
-
-local function run(self)
-	local round = 0
-	while true do
-		round = round + 1
-		tick(self, 0, round)
-		for i = 1, #self.teams, 1 do
-			if not tick(self, i, round) then
-				return
-			end
-		end
-	end
 end
 
 local function event(self, obj, cmd, ...)
-	local tid = obj.team
-	local func = self.teams[tid][cmd]
+	-- local tid = obj.team
+	-- local func = self.teams[tid][cmd]
+	local func = self.event_table[cmd]
 	if func then
 		func(self, obj, ...)
 	end
@@ -248,6 +235,7 @@ end
 return function(map_info)
 	local map = {
 		scale = map_info.scale,
+		event_table = map_info.event_table,
 		layers = {},
 		layer_map = {},
 		teams = {},
@@ -263,9 +251,12 @@ return function(map_info)
 		contact = contact,
 		spawn = spawn,
 		kill = kill,
-		run = run,
+		round_start = round_start,
+		round_end = round_end,
 		event = event,
 	}
+
+	event(map, map, "new_map")
 
 	for i, v in ipairs(map_info.layers) do
 		local l = require("base/layer_" .. v.name)(map, v)
@@ -283,5 +274,3 @@ return function(map_info)
 
 	return map
 end
-
-

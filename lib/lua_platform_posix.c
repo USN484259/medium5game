@@ -3,6 +3,7 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <dirent.h>
@@ -96,6 +97,17 @@ static int lua_random(lua_State* ls)
 	return 1;
 }
 
+static int lua_launch(lua_State *ls)
+{
+	const char *cmd;
+	luaL_checkstring(ls, 1);
+	lua_pushliteral(ls, "xdg-open ");
+	lua_insert(ls, 1);
+	lua_concat(ls, 2);
+	cmd = luaL_checkstring(ls, 1);
+	system(cmd);
+	return 0;
+}
 
 static const struct luaL_Reg lib[] = {
 	{ "uname",	lua_uname },
@@ -103,6 +115,7 @@ static const struct luaL_Reg lib[] = {
 	{ "ls",		lua_ls },
 	{ "sleep",	lua_sleep },
 	{ "random",	lua_random },
+	{ "launch",	lua_launch },
 	{ NULL, NULL },
 };
 

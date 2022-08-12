@@ -139,9 +139,9 @@ local skill_move = {
 
 		self.enable = core.skill_update(self) and not entity.moved
 	end,
-	use = function(self, waypoint)
+	use = function(self, ...)
 		local entity = self.owner
-
+		local waypoint = table.pack(...)
 		if #waypoint == 0 or #waypoint > self.step then
 			return false
 		end

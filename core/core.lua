@@ -248,21 +248,25 @@ local function action(entity, skill, ...)
 
 	local cost = skill.cost
 	if skill.type == "waypoint" then
-		cost = cost * #select(1, ...)
+		cost = cost * select('#', ...)
 	end
 	if entity.energy < cost then
 		return false
 	end
 
+	entity.map:event(entity, "skill_init", skill)
+
 	local nowait = (skill.cooldown == 0)
 	local res = skill:use(...)
 
 	if res then
-		entity.map:event(entity, "skill", skill)
+		entity.map:event(entity, "skill_done", skill)
 
 		skill.remain = skill.cooldown
 		entity.energy = entity.energy - cost
 		entity.active = nowait
+	else
+		entity.map:event(entity, "skill_fail", skill)
 	end
 
 	return res

@@ -30,13 +30,34 @@ return {
 	}},
 
 	teams = {{
-		round = "player",
+		faction = "player",
 		{ "haiyi", {0, 0}, {energy = 400} },
 		{ "chiyu", {4, 10} },
 	}, {
-		round = "enemy",
 		{ "toolman", {2, 7} },
 		{ "toolman", {4, 12} },
 		{ "toolman", {2, 2} },
+		round = function(map, tid, round)
+			local team = map:get_team(tid)
+			local actions = {}
+			for k, e in ipairs(team) do
+				for i, sk in ipairs(e.skills) do
+					if sk.enable then
+						table.insert(actions, {
+							cmd = "use_skill",
+							entity = e,
+							skill = sk,
+							args = nil,
+						})
+					end
+				end
+			end
+
+			table.insert(actions, {
+				cmd = "round_end",
+			})
+
+			return actions
+		end,
 	}},
 }
