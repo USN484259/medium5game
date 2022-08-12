@@ -18,15 +18,13 @@ return {
 	}},
 
 	teams = {{
-		round = "player",
+		faction = "player",
 		{ "shian", {1, 0}, {energy = 1000} },
 		{ "chiyu", {1, 1} },
 		{ "cangqiong", {1, 2} },
 		{ "stardust", {1, 3} },
 		{ "haiyi", {1, 4} },
-
 	}, {
-		round = "enemy",
 		{ "toolman", {0, 0} },
 	}},
 }

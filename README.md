@@ -1,37 +1,48 @@
 # medium5game
+Version 0.1.0
 
 ## About
 Fan game for Medium 5 layout  
 Inspired by *@朦朦的卡比兽* [【五维介质】主角成员们的能力设定](https://www.bilibili.com/read/cv12782058)  
 **'Medium 5'** **'Stardust'** etc are Trademarks held by *Beijing Photek S&T Development Co. Ltd.*  
 Initial design see *medium_5_design.cpp*  
-Powered by **[Lua5.3](https://lua.org)**
 
 ## 关于
 五维介质同人游戏  
 受到 *@朦朦的卡比兽* 的专栏启发 [【五维介质】主角成员们的能力设定](https://www.bilibili.com/read/cv12782058)  
 **五维介质** **星尘** 等注册商标为 *北京福托科技开发有限责任公司* 所有  
 初稿设计见文件 *medium_5_design.cpp*  
-基于 **[Lua5.3](https://lua.org)**
+
+## 依赖库
+* [Lua5.3](https://lua.org)
+* [MoonGL](https://github.com/stetre/moongl)
+* [MoonGLFW](https://github.com/stetre/moonglfw)
+* [MoonImage](https://github.com/stetre/moonimage)
+* [MoonFreeType](https://github.com/stetre/moonfreetype)
 
 ## 运行
 ### Linux
 1. 安装Lua5.3，以Ubuntu/Debian为例，`sudo apt install lua5.3`
 	* 也可从[Lua官网](https://lua.org)下载源码，自行编译
+
 2. 下载或clone本项目，进入项目目录
 3. 下载 [lua_platform.so](https://USN484259.github.io/#lua_platform)，并放在项目目录下
 	* 也可在项目目录下运行 `make` 自行编译库 *lua_platform.so*
-4. `./game.lua` 启动游戏。需要给予 *game.lua* 执行权限
+4. 获取其他依赖库
+	* clone依赖库，运行`make`，将生成的库文件链接到本项目根目录下
+5. 下载[游戏资源](https://usn484259.github.io/#medium5game-resources)，解包到项目根目录
+5. `./game.lua` 启动游戏。需要给予 *game.lua* 执行权限
 	* 也可手动指定lua路径。`$PATH_TO_LUA_5_3 game.lua`
 
-### Windows (试验性)
-1. 下载或clone本项目
-2. 下载 [lua5.3.exe](https://USN484259.github.io/#lua5.3-win32) 和 [liblua.dll](https://USN484259.github.io/#lua5.3-win32) ，并放在项目目录下。此程序使用 [Lua5.3官方源码](http://www.lua.org/versions.html#5.3) 和 *Windows SDK 10.0.22000.0* 编译，以支持[切换UTF-8编码][1]，从而正确显示中文字符。
-3. 下载 [lua_platform.dll](https://USN484259.github.io/#lua_platform)，并放在项目目录下
-	* 也可在项目目录下使用 [MinGW](https://www.mingw-w64.org/) 运行 `export PLAT=mingw; export LUALIB_PATH=<path-to-lua-headers>; make` 自行编译库 *lua_platform.dll*
-4. 从 *Windows应用商店* 安装 [Windows Terminal](https://aka.ms/terminal)，以支持文本颜色。
-5. 在项目目录下启动 **Windows Terminal** ，输入`lua5.3.exe game.lua`启动游戏
-[1]: https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support
+### Windows (暂不可用)
+目前来不及研究Windows平台的编译。本项目及其所有依赖均是跨平台的，可自行尝试进行移植。  
+作为参考，前一个版本的Windows平台运行方式如下
+> 1. 下载或clone本项目
+> 2. 下载 [lua5.3.exe](https://USN484259.github.io/#lua5.3-win32) 和 [liblua.dll](https://USN484259.github.io/#lua5.3-win32) ，并放在项目目录下。此程序使用 [Lua5.3官方源码](http://www.lua.org/versions.html#5.3) 和 *Windows SDK 10.0.22000.0* 编译，以支持[切换UTF-8编码](https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/setlocale-wsetlocale?view=msvc-170#utf-8-support)，从而正确显示中文字符。
+> 3. 下载 [lua_platform.dll](https://USN484259.github.io/#lua_platform)，并放在项目目录下
+>	* 也可在项目目录下使用 [MinGW](https://www.mingw-w64.org/) 运行 `export PLAT=mingw; export LUALIB_PATH=<path-to-lua-headers>; make` 自行编译库 *lua_platform.dll*
+> 4. 从 *Windows应用商店* 安装 [Windows Terminal](https://aka.ms/terminal)，以支持文本颜色。
+> 5. 在项目目录下启动 **Windows Terminal** ，输入`lua5.3.exe game.lua`启动游戏
 
 ## 游戏机制
 其中包含了很多代码实现细节，主要用于帮助理解，不必深究。
@@ -262,6 +273,6 @@ Powered by **[Lua5.3](https://lua.org)**
 1. 移动（路径/目标）。海伊没有接触水时，每次移动2格；海伊处于水中时，可以在同一水体中“传送”至多8步。移动后还可再行动。
 2. 水流冲击（目标）。海伊没有接触水时，射程3，对单个目标造成100%水元素伤害或100%治疗，并附着潮湿；当海伊处于水中时，射程6，可选择至多4个目标（不可相同目标），200%水元素伤害或治疗平均分配到每个目标，单个目标治疗上限为100%，每一个目标附着潮湿。可引爆水泡。
 3. 祈雨（效果）。海伊使用法杖，消耗80能量，产生50水并储存于水母中。
-4. 海之摇篮（目标）。海伊向目标发射水泡，水泡可被气流带向远方。海伊没有接触水时，射程2，每次产生1个水泡；海伊处于水中时，射程4，每次产生2个水泡（不可相同目标）。水泡具有100%强度，持续2回合。当目标处没有实体时，将产生一个水泡实体，具有100%生命值，水抗性0.4，火抗性-0.2，被击破或2回合后爆破，对1半径造成100%水元素伤害并附着潮湿，可伤害队友。
+4. 海之摇篮（目标）。海伊向目标发射水泡，水泡可被气流带向远方。海伊没有接触水时，射程2，每次产生1个水泡；海伊处于水中时，射程4，每次产生2个水泡（不可相同目标）。水泡具有100%强度，持续2回合。当目标处没有实体时，将产生一个水泡实体，具有100%生命值，水抗性0.4，火抗性-0.2，被击破或2回合后爆破，对1半径造成100%水元素伤害并附着潮湿。
 5. 复苏之触（方向/效果）。海伊使用法杖治愈队友，回复队友最大生命值的60%，可超过生命值上限。海伊没有接触水时，治愈身边的一名队友并附着水泡；海伊处于水中时，治愈同一水体中8步以内的一名队友并附着水泡。
 6. 泡影的咏叹调（效果），终极技能。海伊在半径4范围内创造暴雨，持续4回合，地面产生积水。技能作用时间内海伊仍然可以行动，始终处于水中，所有技能不消耗水。每回合对自身周围半径2造成50%水元素伤害或25%治疗，附着潮湿并引爆敌方水泡。处于暴雨中的实体每回合都会尝试附着水泡，敌方火元素投掷物会消失。

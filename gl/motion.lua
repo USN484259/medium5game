@@ -26,6 +26,9 @@ local function motion_add(element, motion_list, line_index)
 
 	local root, prev
 	root = element.motion_list[line_index]
+	while root and #root.next > 0 do
+		root = root.next[1]
+	end
 	prev = root
 
 	for i, v in ipairs(motion_list) do

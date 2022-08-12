@@ -12,8 +12,10 @@ local element = {
 return {
 	game = {
 		name = "五维介质同人游戏",
-		author = "USN484259",
-		homepage = "https://github.com/USN484259/medium5game",
+		designer = "朦朦的卡比兽",
+		programmer = "USN484259",
+		menu_illustrator = "Kieed",
+		ip_owner = "五维介质企划",
 	},
 	ui = {
 		game_exit = "退出游戏",
@@ -51,8 +53,10 @@ return {
 		["true"] = "是",
 		["false"] = "否",
 		version = "版本",
-		author = "作者",
-		homepage = "主页",
+		designer = "设计",
+		programmer = "编程",
+		illustrator = "背景",
+		ip_owner = "IP版权方",
 		map = "场地",
 		layer = "层",
 		entity = "角色",
